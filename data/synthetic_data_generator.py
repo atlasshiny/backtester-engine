@@ -6,7 +6,7 @@ dates = pd.date_range(start="2025-01-01", periods=num_rows)
 price = np.cumsum(np.random.randn(num_rows)) + 100 # simple random walk. can be swapped for brownian motion for better synthetic data.
 
 # generate synthetic data
-ohlc = pd.DataFrame({
+ohlcv = pd.DataFrame({
     'Open': price + np.random.rand(num_rows),
     'High': price + np.random.rand(num_rows) * 2,
     'Low': price - np.random.rand(num_rows) * 2,
@@ -14,6 +14,6 @@ ohlc = pd.DataFrame({
     'Volume': np.random.randint(100, 1000, size=num_rows)
 }, index=dates)
 
-print(ohlc)
+print(ohlcv)
 
-ohlc.to_csv("./")
+ohlcv.to_csv("./data/synthetic.csv")
