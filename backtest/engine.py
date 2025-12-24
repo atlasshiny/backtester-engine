@@ -1,7 +1,12 @@
 import pandas as pd
+from strategy import Strategy
 
-# make sure to generate data set
-data_set = pd.read_csv("../data/synthetic.csv")
+class BacktestEngine():
+    def __init__(self, strategy: Strategy, data_set: pd.DataFrame):
+        self.strategy = strategy
+        self.data_set = data_set
+        pass
 
-for event in data_set.itertuples():
-    pass # run the data through a method in the Strategy class and if it meets the criteria, execute the strategy
+    def run(self):
+        for event in self.data_set.itertuples():
+            pass
