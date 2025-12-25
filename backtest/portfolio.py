@@ -1,7 +1,7 @@
 from typing import Literal, Union, Tuple
-
 class Portfolio():
     def __init__(self, initial_cash: float):
+        self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions = {} # change to a dict or list eventually
         self.trade_log = []
@@ -61,3 +61,6 @@ class Portfolio():
                 self.remove_position(symbol=symbol_or_name, amount=amount_to_sell, price=price)
                 self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
                 # print(f"Action executed : SELL {amount_to_sell} of {symbol_or_name} at {price}")
+
+    def portfolio_value_snapshot(self, event: float) -> float:
+        return self.cash + (self.positions['SYNTH']['amount'] * event)
