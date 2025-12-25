@@ -8,8 +8,6 @@ class BacktestEngine():
         self.strategy = strategy
         self.data_set = data_set
         self.portfolio = portfolio
-        self.successful_trades = pd.DataFrame()
-        self.unsuccessful_trades = pd.DataFrame()
         pass
 
     def run(self):
@@ -17,9 +15,13 @@ class BacktestEngine():
             self.portfolio.execute(event=event, action=self.strategy.check_condition(event=event), symbol_or_name=event[2]) #fiugre out how to pull the symbol/name in a better manner
                 
     def results(self, save: bool):
+        final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
+        print(f"Final Portfolio Value : {final_portfolio_value}"),
+        print(f"PnL : {final_portfolio_value - self.portfolio.initial_cash}")
         # have all other code run before saving
         if save == True:
-            print("Enter saved results file name:")
-            file_name = input("")
-            # figure out how the data will be represented before trying to save a .txt or .csv file of it
-        pass
+            trade_log = pd.DataFrame(self.portfolio.trade_log)
+            trade_log.to_csv("./trade_log")
+            # consider adding final portfolio value and pnl to seperate file
+        else:
+            pass
