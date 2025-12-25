@@ -1,6 +1,7 @@
 import pandas as pd
 from .portfolio import Portfolio
 from typing import Literal
+
 class Strategy():
     def __init__(self):
         pass
