@@ -5,6 +5,7 @@ class Portfolio():
         self.cash = initial_cash
         self.positions = {} # change to a dict or list eventually
         self.trade_log = []
+        self.value_history = []
         pass
 
     def add_position(self, symbol_or_name: str, amount: int, price: float):
@@ -34,6 +35,10 @@ class Portfolio():
             # print(f"No position found for symbol: {symbol}")
             pass
 
+    def update_value_history(self, current_price):
+        value = self.cash + sum(pos['amount'] * current_price for pos in self.positions.values())
+        self.value_history.append(value)
+
     def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], amount: int, symbol_or_name: str, price: int):
         trade = {
             "symbol": symbol_or_name,
@@ -61,6 +66,7 @@ class Portfolio():
                 self.remove_position(symbol=symbol_or_name, amount=amount_to_sell, price=price)
                 self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
                 # print(f"Action executed : SELL {amount_to_sell} of {symbol_or_name} at {price}")
+        self.update_value_history(event[4])
 
     def portfolio_value_snapshot(self, event: float) -> float:
         return self.cash + (self.positions['SYNTH']['amount'] * event)
