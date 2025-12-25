@@ -1,5 +1,5 @@
 import pandas as pd
-from strategy import Strategy
+from .strategy import Strategy
 
 class BacktestEngine():
     def __init__(self, strategy: Strategy, data_set: pd.DataFrame):
@@ -9,4 +9,9 @@ class BacktestEngine():
 
     def run(self):
         for event in self.data_set.itertuples():
+            if self.strategy.check_condition(event=event) == True:
+                self.strategy.execute(event=event)
+                print("Action executed")
+            else:
+                print("No action taken")
             pass
