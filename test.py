@@ -26,5 +26,5 @@ data_set = pd.read_csv("./data/synthetic.csv")
 
 engine = BacktestEngine(strategy=strat, portfolio=account, data_set=data_set)
 engine.run()
-engine.results(False)
+engine.results(plot=True, save=False)
 # cProfile.run('engine.run()', sort='cumtime')

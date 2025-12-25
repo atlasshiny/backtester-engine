@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
 
-num_rows = 15000  # instead of 100
-dates = pd.date_range(start="2020-01-01", periods=num_rows)
+num_rows = 25000  # instead of 100
+dates = pd.date_range(start="1960-01-01", periods=num_rows)
 price = np.cumsum(np.random.randn(num_rows)) + 100 # simple random walk. can be swapped for brownian motion for better synthetic data.
 
 # generate synthetic data
