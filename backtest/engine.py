@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib as plt
 from .strategy import Strategy
 from .portfolio import Portfolio
 
@@ -13,7 +14,7 @@ class BacktestEngine():
 
     def run(self):
         for event in self.data_set.itertuples():
-            Portfolio.execute(event=event, action=self.strategy.check_condition(event=event))
+            self.portfolio.execute(event=event, action=self.strategy.check_condition(event=event), symbol_or_name=event[2]) #fiugre out how to pull the symbol/name in a better manner
                 
     def results(self, save: bool):
         # have all other code run before saving
