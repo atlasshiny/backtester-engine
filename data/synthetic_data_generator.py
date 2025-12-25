@@ -7,6 +7,7 @@ price = np.cumsum(np.random.randn(num_rows)) + 100 # simple random walk. can be 
 
 # generate synthetic data
 ohlcv = pd.DataFrame({
+    'Symbol': "SYNTH",
     'Open': price + np.random.rand(num_rows),
     'High': price + np.random.rand(num_rows) * 2,
     'Low': price - np.random.rand(num_rows) * 2,
