@@ -7,11 +7,11 @@ class Strategy():
         pass
 
     def on_start(self):
-        """Override this for each individual subclass if needed"""
+        """Override this for each individual subclass if needed (Optional Method)"""
         raise NotImplementedError("on_start must be implemented by subclass.")
 
     def on_finish(self):
-        """Override this for each individual subclass if needed"""
+        """Override this for each individual subclass if needed (Optional Method)"""
         raise NotImplementedError("on_finish must be implemented by subclass.")
 
     def check_condition(self, event: tuple) -> Literal["BUY", "SELL", "HOLD"]:
