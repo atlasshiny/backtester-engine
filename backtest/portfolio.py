@@ -39,7 +39,7 @@ class Portfolio():
         value = self.cash + sum(pos['amount'] * current_price for pos in self.positions.values())
         self.value_history.append(value)
 
-    def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], amount: int, symbol_or_name: str, price: int, comment: str):
+    def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], amount: int, symbol_or_name: str, price: int, comment=""):
         trade = {
             "symbol": symbol_or_name,
             "side": side,
@@ -50,10 +50,11 @@ class Portfolio():
         self.trade_log.append(trade)
 
     def execute(self, event: tuple, action: Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Literal["HOLD"]], symbol_or_name: str):
-        price = event[4] # using the "high" of a day's worth of data
+        price = event[6] # using the "close"
+        print(price)
         match action[0]:
             case "BUY":
-                total_cost = event[4] * action[1]
+                total_cost = price * action[1]
                 if self.cash >= total_cost:
                     self.cash -= total_cost
                     self.add_position(symbol_or_name=symbol_or_name, amount=action[1], price=price)
@@ -65,9 +66,13 @@ class Portfolio():
                 pass
             case "SELL":
                 amount_to_sell = action[1]
-                self.cash += amount_to_sell * price
-                self.remove_position(symbol=symbol_or_name, amount=amount_to_sell, price=price)
-                self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
+                # Check if there is enough to sell
+                if symbol_or_name in self.positions and self.positions[symbol_or_name]['amount'] >= amount_to_sell:
+                    self.cash += amount_to_sell * price
+                    self.remove_position(symbol=symbol_or_name, amount=amount_to_sell, price=price)
+                    self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
+                else:
+                    self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, comment="Insufficient Position")
         self.update_value_history(event[4])
 
     def portfolio_value_snapshot(self, event: float) -> float:
