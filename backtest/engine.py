@@ -18,7 +18,7 @@ class BacktestEngine():
         final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
         print(f"Final Portfolio Value : {final_portfolio_value}"),
         print(f"PnL : {final_portfolio_value - self.portfolio.initial_cash}")
-
+        print(f"Remaining Positions : {self.portfolio.positions['SYNTH']['amount']}")
         if plot == True:
             plt.figure(figsize=(10, 5))
             plt.plot(self.portfolio.value_history, label='Equity Curve')
