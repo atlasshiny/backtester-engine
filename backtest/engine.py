@@ -16,22 +16,48 @@ class BacktestEngine():
                 
     def results(self, plot: bool, save: bool):
         final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
-        print(f"Final Portfolio Value : {final_portfolio_value}"),
+        print(f"Final Portfolio Value : {final_portfolio_value}")
         print(f"PnL : {final_portfolio_value - self.portfolio.initial_cash}")
         print(f"Remaining Positions : {self.portfolio.positions['SYNTH']['amount']}")
         if plot == True:
+            # equity curve
             plt.figure(figsize=(10, 5))
             plt.plot(self.portfolio.value_history, label='Equity Curve')
             plt.xlabel('Time (events)')
             plt.ylabel('Portfolio Value')
             plt.title('Backtest Equity Curve')
             plt.legend()
+
+            # price curve
+            plt.figure(figsize=(10, 5))
+            plt.plot(self.data_set['Close'].values, label='Price (Close)')
+            plt.xlabel('Time (events)')
+            plt.ylabel('Price')
+            plt.title('Price Curve (Close)')
+            plt.legend()
+
+
+            # show all graphs in seperate windows
             plt.show()
 
-        # have all other code run before saving
+        if plot == True:
+            # Combined equity and price curve in one window
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            color1 = 'tab:blue'
+            ax1.set_xlabel('Time (events)')
+            ax1.set_ylabel('Portfolio Value', color=color1)
+            ax1.plot(self.portfolio.value_history, color=color1, label='Equity Curve')
+            ax1.tick_params(axis='y', labelcolor=color1)
+
+            ax2 = ax1.twinx()
+            color2 = 'tab:orange'
+            ax2.set_ylabel('Price (Close)', color=color2)
+            ax2.plot(self.data_set['Close'].values, color=color2, label='Price (Close)')
+            ax2.tick_params(axis='y', labelcolor=color2)
+
+            fig.suptitle('Equity Curve and Price Curve')
+            fig.tight_layout()
+            plt.show()
+
         if save == True:
-            trade_log = pd.DataFrame(self.portfolio.trade_log)
-            trade_log.to_csv("./trade_log")
-            # consider adding final portfolio value and pnl to seperate file
-        else:
             pass
