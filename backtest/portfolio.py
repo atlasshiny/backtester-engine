@@ -49,9 +49,8 @@ class Portfolio():
         }
         self.trade_log.append(trade)
 
-    def execute(self, event: tuple, action: Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Literal["HOLD"]], symbol_or_name: str):
-        price = event[6] # using the "close"
-        print(price)
+    def execute(self, event: tuple, action: Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]], symbol_or_name: str):
+        price = event.Close
         match action[0]:
             case "BUY":
                 total_cost = price * action[1]
@@ -73,7 +72,7 @@ class Portfolio():
                     self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
                 else:
                     self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, comment="Insufficient Position")
-        self.update_value_history(event[4])
+        self.update_value_history(event.Close)
 
     def portfolio_value_snapshot(self, event: float) -> float:
         if not self.positions:

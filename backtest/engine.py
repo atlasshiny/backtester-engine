@@ -12,7 +12,7 @@ class BacktestEngine():
 
     def run(self):
         for event in self.data_set.itertuples():
-            self.portfolio.execute(event=event, action=self.strategy.check_condition(event=event), symbol_or_name=event[2]) #fiugre out how to pull the symbol/name in a better manner
+            self.portfolio.execute(event=event, action=self.strategy.check_condition(event=event), symbol_or_name=event.Symbol) #fiugre out how to pull the symbol/name in a better manner
                 
     def results(self, plot: bool, save: bool):
         final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
