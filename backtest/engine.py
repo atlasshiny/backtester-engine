@@ -18,7 +18,11 @@ class BacktestEngine():
         final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
         print(f"Final Portfolio Value : {final_portfolio_value}")
         print(f"PnL : {final_portfolio_value - self.portfolio.initial_cash}")
-        print(f"Remaining Positions : {self.portfolio.positions['SYNTH']['amount']}")
+        if not self.portfolio.positions:
+            print("No outstanding positions")
+        else:
+            print(f"Remaining Positions : {self.portfolio.positions['SYNTH']['amount']}")
+        print(f"NOTICE : Because of slippage and commission, gains are not 1:1 and are less; all trade costs and gains factor in slippage and commission")
         if plot == True:
             # equity curve
             plt.figure(figsize=(10, 5))
