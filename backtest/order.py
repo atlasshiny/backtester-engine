@@ -4,6 +4,6 @@ from typing import Literal
 @dataclass
 class Order:
     symbol: str
-    side: Literal["BUY", "SELL"]
+    side: Literal["BUY", "SELL", "HOLD"]
     qty: int
     timestamp: int | None = None
