@@ -64,7 +64,7 @@ class Portfolio():
                 else:
                     self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, comment="Insufficient Funds")
             case "HOLD":
-                self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price)
+                pass
             case "SELL":
                 exec_price = price * (1 - self.slippage)
                 amount_to_sell = action[1]
