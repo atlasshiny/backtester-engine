@@ -11,8 +11,22 @@ class BacktestEngine():
         pass
 
     def run(self):
+        pending_action = None
+        pending_symbol = None
+
         for event in self.data_set.itertuples():
-            self.portfolio.execute(event=event, action=self.strategy.check_condition(event=event), symbol_or_name=event.Symbol) #fiugre out how to pull the symbol/name in a better manner
+            # execute the previous bar's decision using the CURRENT bar's prices
+            if pending_action is not None:
+                self.portfolio.execute(
+                    event=event,
+                    action=pending_action,
+                    symbol_or_name=pending_symbol
+                )
+
+            # make a new decision based on the CURRENT bar
+            pending_action = self.strategy.check_condition(event)
+            pending_symbol = event.Symbol
+
                 
     def results(self, plot: bool, save: bool):
         final_portfolio_value = self.portfolio.portfolio_value_snapshot(self.data_set.iloc[-1]['Close'])
