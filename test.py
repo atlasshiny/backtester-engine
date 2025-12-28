@@ -1,6 +1,7 @@
 from backtest import BacktestEngine
 from backtest import Strategy
 from backtest import Portfolio
+from backtest import Order
 import pandas as pd
 import cProfile
 
@@ -9,17 +10,17 @@ class TestStrategy(Strategy):
     def __init__(self):
         super().__init__()
 
-    def check_condition(self, event: tuple): 
-        # assuming that event follows the structure in synthetic.csv
-        if event[7] > 500:
-            return ["SELL",1]
-        elif event[7] < 250:
-            return ["BUY",4]
+    def check_condition(self, event: tuple):
+        # assuming data looks similar to synthetic.csv
+        if event.Volume > 700:
+            return Order(symbol=event.Symbol, side="SELL", qty=1)
+        elif event.Volume < 600:
+            return Order(symbol=event.Symbol, side="BUY", qty=1)
         else:
-            return "HOLD"
+            return Order(symbol=event.Symbol, side="HOLD", qty=0)
 
 strat = TestStrategy()
-account = Portfolio(120000.62)
+account = Portfolio(5000.62, slippage=0.001, commission=0.001)
 
 # turn the data set csv into a dataframe
 data_set = pd.read_csv("./data/synthetic.csv")
