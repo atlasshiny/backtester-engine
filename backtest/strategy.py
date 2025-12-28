@@ -3,7 +3,8 @@ from .order import Order
 from typing import Literal, Union, Tuple
 
 class Strategy():
-    def __init__(self):
+    def __init__(self, history_window: int | None = None):
+        self.history_window = history_window
         pass
 
     def on_start(self):
