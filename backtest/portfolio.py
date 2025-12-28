@@ -1,6 +1,6 @@
 from typing import Literal, Union, Tuple
 class Portfolio():
-    def __init__(self, initial_cash: float, slippage=0.001, commission=0.001):
+    def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001):
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions = {}
