@@ -12,21 +12,18 @@ class BacktestEngine():
         pass
 
     def run(self):
-        pending_action = None
-        pending_symbol = None
+        pending_order = None
 
         for event in self.data_set.itertuples():
             # execute the previous bar's decision using the CURRENT bar's prices
-            if pending_action is not None:
+            if pending_order is not None:
                 self.portfolio.execute(
                     event=event,
-                    action=pending_action,
-                    symbol_or_name=pending_symbol
+                    order=pending_order
                 )
 
             # make a new decision based on the CURRENT bar
-            pending_action = self.strategy.check_condition(event)
-            pending_symbol = event.Symbol
+            pending_order = self.strategy.check_condition(event)
 
                 
     def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):

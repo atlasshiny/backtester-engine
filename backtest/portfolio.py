@@ -1,14 +1,19 @@
 from typing import Literal, Union, Tuple
+
 class Portfolio():
     def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
+        # initialization variables
         self.initial_cash = initial_cash
         self.cash = initial_cash
-        self.positions = {}
-        self.trade_log = []
-        self.value_history = []
         self.slippage = slippage
         self.commission = commission
         self.log_hold = log_hold
+
+        # state variables
+        self.positions = {}
+        self.trade_log = []
+        self.value_history = []
+
         pass
 
     def add_position(self, symbol_or_name: str, amount: int, price: float):
@@ -54,38 +59,39 @@ class Portfolio():
         }
         self.trade_log.append(trade)
 
-    def execute(self, event: tuple, action: Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]], symbol_or_name: str):
+    def execute(self, event: tuple, order):
         price = event.Close
         # Slippage and commission are both percent-based (e.g., 0.001 for 0.1%)
-        match action[0]:
+        side = order.side
+        symbol = order.symbol
+        qty = order.qty
+        match side:
             case "BUY":
                 exec_price = price * (1 + self.slippage)
-                qty = action[1]
                 trade_value = exec_price * qty
                 commission = trade_value * self.commission
                 total_cost = trade_value + commission
                 if self.cash >= total_cost:
                     self.cash -= total_cost
-                    self.add_position(symbol_or_name=symbol_or_name, amount=qty, price=exec_price)
-                    self.log_trade(side=action[0], amount=qty, symbol_or_name=symbol_or_name, price=exec_price, commission=commission, slippage=self.slippage)
+                    self.add_position(symbol_or_name=symbol, amount=qty, price=exec_price)
+                    self.log_trade(side=side, amount=qty, symbol_or_name=symbol, price=exec_price, commission=commission, slippage=self.slippage)
                 else:
-                    self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Funds")
+                    self.log_trade(side=side, amount=0, symbol_or_name=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Funds")
             case "HOLD":
                 if self.log_hold == True:
-                    self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price, commission=0.0, slippage=0.0, comment="HOLD")
+                    self.log_trade(side=side, amount=qty, symbol_or_name=symbol, price=price, commission=0.0, slippage=0.0, comment="HOLD")
                 pass
             case "SELL":
                 exec_price = price * (1 - self.slippage)
-                qty = action[1]
                 trade_value = exec_price * qty
                 commission = trade_value * self.commission
                 # Check if there is enough to sell
-                if symbol_or_name in self.positions and self.positions[symbol_or_name]['amount'] >= qty:
+                if symbol in self.positions and self.positions[symbol]['amount'] >= qty:
                     self.cash += trade_value - commission
-                    self.remove_position(symbol=symbol_or_name, amount=qty, price=exec_price)
-                    self.log_trade(side=action[0], amount=qty, symbol_or_name=symbol_or_name, price=exec_price, commission=commission, slippage=self.slippage)
+                    self.remove_position(symbol=symbol, amount=qty, price=exec_price)
+                    self.log_trade(side=side, amount=qty, symbol_or_name=symbol, price=exec_price, commission=commission, slippage=self.slippage)
                 else:
-                    self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Position")
+                    self.log_trade(side=side, amount=0, symbol_or_name=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Position")
         self.update_value_history(event.Close)
 
     def portfolio_value_snapshot(self, event: float) -> float:

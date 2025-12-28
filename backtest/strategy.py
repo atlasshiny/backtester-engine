@@ -1,5 +1,5 @@
 import pandas as pd
-from .portfolio import Portfolio
+from .order import Order
 from typing import Literal, Union, Tuple
 
 class Strategy():
@@ -14,6 +14,8 @@ class Strategy():
         """Override this for each individual subclass if needed (Optional Method)"""
         raise NotImplementedError("on_finish must be implemented by subclass.")
 
-    def check_condition(self, event: tuple) -> Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]]:
-        """Override this for each individual subclass"""
+    # old expected return value
+    # Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]]
+    def check_condition(self, event: tuple) -> Order:
+        """Override this for each individual subclass. Should return an Order object."""
         raise NotImplementedError("check_condition must be implemented by subclass.")
