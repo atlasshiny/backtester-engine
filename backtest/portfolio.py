@@ -1,6 +1,6 @@
 from typing import Literal, Union, Tuple
 class Portfolio():
-    def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001):
+    def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions = {}
@@ -8,6 +8,7 @@ class Portfolio():
         self.value_history = []
         self.slippage = slippage
         self.commission = commission
+        self.log_hold = log_hold
         pass
 
     def add_position(self, symbol_or_name: str, amount: int, price: float):
@@ -70,7 +71,8 @@ class Portfolio():
                 else:
                     self.log_trade(side=action[0], amount=0, symbol_or_name=symbol_or_name, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Funds")
             case "HOLD":
-                # self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price, commission=0.0, slippage=0.0, comment="HOLD")
+                if self.log_hold == True:
+                    self.log_trade(side=action[0], amount=action[1], symbol_or_name=symbol_or_name, price=price, commission=0.0, slippage=0.0, comment="HOLD")
                 pass
             case "SELL":
                 exec_price = price * (1 - self.slippage)
