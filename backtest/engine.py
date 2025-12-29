@@ -4,14 +4,15 @@ import numpy as np
 from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
+from .broker import Broker
 
 class BacktestEngine():
-    def __init__(self, strategy: Strategy, portfolio: Portfolio, data_set: pd.DataFrame, warm_up: int = 0):
+    def __init__(self, strategy: Strategy, portfolio: Portfolio, data_set: pd.DataFrame, warm_up: int = 0, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
         self.strategy = strategy
         self.data_set = data_set
         self.portfolio = portfolio
+        self.broker = Broker(portfolio, slippage=slippage, commission=commission, log_hold=log_hold)
         self.warm_up = warm_up
-        pass
 
     def run(self):
         pending_order = None
@@ -29,7 +30,7 @@ class BacktestEngine():
 
             # execute the previous bar's decision using the CURRENT bar's prices
             if pending_order is not None:
-                self.portfolio.execute(
+                self.broker.execute(
                     event=event,
                     order=pending_order
                 )
@@ -39,4 +40,5 @@ class BacktestEngine():
                 
     def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):
         analytics = PerformanceAnalytics()
-        analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate)
+        # Pass broker.trade_log to analytics for trade statistics
+        analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate, trade_log=self.broker.trade_log)

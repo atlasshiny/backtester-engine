@@ -25,7 +25,7 @@ def main():
     strategy = SimpleMovingAverage(fast_window=7, slow_window=25)
 
     # Create portfolio
-    account = Portfolio(initial_cash=10000, slippage=0.001, commission=0.001)
+    account = Portfolio(initial_cash=10000)
 
     # Create and run engine
     engine = BacktestEngine(strategy=strategy, portfolio=account, data_set=data_set)

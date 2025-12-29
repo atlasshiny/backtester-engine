@@ -6,7 +6,7 @@ class PerformanceAnalytics:
     def __init__(self):
         pass
 
-    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):
+    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None):
         # convert value history to numpy array for calculations 
         equity = np.array(portfolio.value_history)
         returns = np.diff(equity) / equity[:-1]
@@ -52,7 +52,7 @@ class PerformanceAnalytics:
         print(f"Annualized Sortino Ratio: {sortino:.2f}")
 
         # trade statistics
-        trades = pd.DataFrame(portfolio.trade_log)
+        trades = pd.DataFrame(trade_log) if trade_log is not None else pd.DataFrame()
         total_trades = len(trades[trades['side'].isin(['BUY','SELL'])])
 
         # Improved Win Rate calculation: pair each SELL with its corresponding BUY, compute per-trade PnL
