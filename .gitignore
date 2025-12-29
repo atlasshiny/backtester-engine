@@ -2,3 +2,4 @@ data/synthetic.csv
 strategies/
 backtest/__pycache__
 data/__pycache__
+backtest/dataclasses/__pycache__
