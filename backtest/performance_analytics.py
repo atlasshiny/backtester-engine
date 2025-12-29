@@ -48,13 +48,29 @@ class PerformanceAnalytics:
         trades = pd.DataFrame(portfolio.trade_log)
         total_trades = len(trades[trades['side'].isin(['BUY','SELL'])])
 
-        # FIX LATER
-
-        # winning_trades = trades[(trades['side'] == 'SELL') & (trades['price'] > 0)]
-        # losing_trades = trades[(trades['side'] == 'SELL') & (trades['price'] > 0)]  # can refine by PnL
-        # print(f"Total trades: {total_trades}")
-        # print(f"Winning trades: {len(winning_trades)}")
-        # print(f"Losing trades: {len(losing_trades)}")
+        # Improved Win Rate calculation: pair each SELL with its corresponding BUY, compute per-trade PnL
+        # Assumptions
+        # - Long-only
+        # - FIFO matching
+        # - No partial exits
+        # - Single-symbol trading
+        # - Commission/slippage ignored in per-trade PnL
+        trade_pairs = []
+        open_trades = []
+        for _, row in trades.iterrows():
+            if row['side'] == 'BUY' and row['qty'] > 0 and row['price'] is not None:
+                open_trades.append(row)
+            elif row['side'] == 'SELL' and row['qty'] > 0 and row['price'] is not None and open_trades:
+                entry = open_trades.pop(0)
+                # PnL = (sell price - buy price) * qty (assume qty matches)
+                pnl = (row['price'] - entry['price']) * min(row['qty'], entry['qty'])
+                trade_pairs.append({'entry': entry, 'exit': row, 'pnl': pnl})
+        if trade_pairs:
+            wins = [tp for tp in trade_pairs if tp['pnl'] > 0]
+            win_rate = (len(wins) / len(trade_pairs)) * 100
+        else:
+            win_rate = float('nan')
+        print(f"Win Rate: {win_rate:.2f}%")
 
         # plots
         if plot:
