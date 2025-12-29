@@ -21,7 +21,7 @@ class PerformanceAnalytics:
             print("No outstanding positions")
         else:
             for sym, pos in portfolio.positions.items():
-                print(f"Remaining {sym}: {pos['amount']} units at avg price {pos['price']:.2f}")
+                print(f"Remaining {sym}: {pos.qty} units at avg price {pos.avg_price:.2f}")
 
         print("\nNOTICE: All trades include slippage and commission.")
 
