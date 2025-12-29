@@ -1,4 +1,6 @@
+
 from typing import Literal, Union, Tuple
+from backtest.dataclasses.position import Position
 
 class Portfolio():
     def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
@@ -19,32 +21,23 @@ class Portfolio():
     def add_position(self, symbol_or_name: str, amount: int, price: float):
         if symbol_or_name in self.positions:
             pos = self.positions[symbol_or_name]
-            # Update average price and amount
-            total_cost = pos['amount'] * pos['price'] + amount * price
-            total_amount = pos['amount'] + amount
-            avg_price = total_cost / total_amount
-            self.positions[symbol_or_name] = {'amount': total_amount, 'price': avg_price}
+            pos.add(amount, price)
         else:
-            self.positions[symbol_or_name] = {'amount': amount, 'price': price}
+            self.positions[symbol_or_name] = Position(symbol=symbol_or_name, qty=amount, avg_price=price)
 
     def remove_position(self, symbol: str, amount: int, price: float):
         if symbol in self.positions:
             pos = self.positions[symbol]
-            if amount > pos['amount']:
-                print(f"Cannot sell {amount} units of {symbol}; only {pos['amount']} available.")
-                # Optionally, raise an exception or just return
+            if amount > pos.qty:
+                print(f"Cannot sell {amount} units of {symbol}; only {pos.qty} available.")
                 return
-            elif amount == pos['amount']:
+            elif amount == pos.qty:
                 del self.positions[symbol]
             else:
-                remaining_amount = pos['amount'] - amount
-                self.positions[symbol] = {'amount': remaining_amount, 'price': pos['price']}
-        else:
-            # print(f"No position found for symbol: {symbol}")
-            pass
+                pos.remove(amount)
 
     def update_value_history(self, current_price):
-        value = self.cash + sum(pos['amount'] * current_price for pos in self.positions.values())
+        value = self.cash + sum(pos.qty * current_price for pos in self.positions.values())
         self.value_history.append(value)
 
     def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], amount: int, symbol_or_name: str, price: float, commission: float, slippage: float, comment=""):
@@ -86,7 +79,7 @@ class Portfolio():
                 trade_value = exec_price * qty
                 commission = trade_value * self.commission
                 # Check if there is enough to sell
-                if symbol in self.positions and self.positions[symbol]['amount'] >= qty:
+                if symbol in self.positions and self.positions[symbol].qty >= qty:
                     self.cash += trade_value - commission
                     self.remove_position(symbol=symbol, amount=qty, price=exec_price)
                     self.log_trade(side=side, amount=qty, symbol_or_name=symbol, price=exec_price, commission=commission, slippage=self.slippage)
@@ -98,4 +91,4 @@ class Portfolio():
         if not self.positions:
             return self.cash
         else:
-            return self.cash + sum(pos['amount'] * event for pos in self.positions.values())
+            return self.cash + sum(pos.qty * event for pos in self.positions.values())
