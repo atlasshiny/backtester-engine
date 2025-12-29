@@ -22,7 +22,7 @@ def main():
     data_set = pd.read_csv(data_path)
 
     # Choose strategy (replace with your own as needed)
-    strategy = SimpleMovingAverage(fast_window=5, slow_window=20)
+    strategy = SimpleMovingAverage(fast_window=7, slow_window=25)
 
     # Create portfolio
     account = Portfolio(initial_cash=10000, slippage=0.001, commission=0.001)
