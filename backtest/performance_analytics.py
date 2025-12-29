@@ -31,17 +31,24 @@ class PerformanceAnalytics:
         max_drawdown = drawdowns.max()
         print(f"Maximum Drawdown: {max_drawdown*100:.2f}%")
 
-        # sharpe ratio (include case for division by zero)
-        sharpe = (np.mean(returns) - risk_free_rate) / np.std(returns) * np.sqrt(252)
+        # sharpe ratio (robust to division by zero or nan)
+        std_ret = np.std(returns)
+        if std_ret > 0 and np.isfinite(std_ret):
+            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(252)
+        else:
+            sharpe = float('nan')
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
 
-        # sortino ratio (include case for division by zero)
+        # sortino ratio (robust to division by zero or nan)
         downside_returns = returns[returns < 0]
         if len(downside_returns) > 0:
             downside_dev = np.std(downside_returns)
-            sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(252)
+            if downside_dev > 0 and np.isfinite(downside_dev):
+                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(252)
+            else:
+                sortino = float('nan')
         else:
-            sortino = np.nan
+            sortino = float('nan')
         print(f"Annualized Sortino Ratio: {sortino:.2f}")
 
         # trade statistics
