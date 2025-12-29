@@ -53,7 +53,7 @@ class Portfolio():
         self.trade_log.append(trade)
 
     def execute(self, event: tuple, order):
-        price = event.Close
+        price = event.Open
         # Slippage and commission are both percent-based (e.g., 0.001 for 0.1%)
         side = order.side
         symbol = order.symbol
