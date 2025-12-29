@@ -1,5 +1,5 @@
 import pandas as pd
-from .order import Order
+from .dataclasses.order import Order
 from typing import Literal, Union, Tuple
 
 class Strategy():
