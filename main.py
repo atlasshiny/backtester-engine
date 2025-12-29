@@ -9,10 +9,9 @@ sys.path.append(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'backte
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'strategies'))
 
 import pandas as pd
-from backtest.engine import BacktestEngine
-from backtest.portfolio import Portfolio
-from backtest.strategy import Strategy
-from backtest.order import Order
+from backtest import BacktestEngine
+from backtest import Portfolio
+from backtest import Broker
 from strategies.simple_moving_average import SimpleMovingAverage # replace with choosen strategy
 
 
@@ -27,8 +26,11 @@ def main():
     # Create portfolio
     account = Portfolio(initial_cash=10000)
 
+    # Create broker
+    broker = Broker(portfolio=account, slippage=0.001, commission=0.001, log_hold=False)
+
     # Create and run engine
-    engine = BacktestEngine(strategy=strategy, portfolio=account, data_set=data_set)
+    engine = BacktestEngine(strategy=strategy, portfolio=account, broker=broker, data_set=data_set, warm_up=30)
 
     engine.run()
     engine.results(plot=True, save=False)

@@ -7,22 +7,20 @@ from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
 
 class BacktestEngine():
-    def __init__(self, strategy: Strategy, portfolio: Portfolio, data_set: pd.DataFrame, warm_up: int = 0, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
+    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker, data_set: pd.DataFrame, warm_up: int = 0):
         """
         Initialize the BacktestEngine.
         Args:
             strategy (Strategy): The trading strategy instance.
             portfolio (Portfolio): The portfolio instance.
+            broker (Broker): The broker instance.
             data_set (pd.DataFrame): The market data.
             warm_up (int): Number of bars to use for warm-up (no trading).
-            slippage (float): Slippage rate.
-            commission (float): Commission rate.
-            log_hold (bool): Whether to log HOLD trades.
         """
         self.strategy = strategy
         self.data_set = data_set
         self.portfolio = portfolio
-        self.broker = Broker(portfolio, slippage=slippage, commission=commission, log_hold=log_hold)
+        self.broker = broker
         self.warm_up = warm_up
 
     def run(self):
