@@ -27,6 +27,11 @@ class BacktestEngine():
         """
         Run the backtest loop: feed events to the strategy, execute orders, and update portfolio/broker state.
         """
+        try:
+            self.strategy.on_start()
+        except NotImplementedError:
+            pass
+
         pending_order = None
         window_size = getattr(self.strategy, 'history_window', None)
         for idx, event in enumerate(self.data_set.itertuples()):
@@ -49,6 +54,10 @@ class BacktestEngine():
 
             pending_order = signal
 
+        try:
+            self.strategy.on_finish()
+        except NotImplementedError:
+            pass
                 
     def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):
         """
