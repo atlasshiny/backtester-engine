@@ -1,6 +1,6 @@
 
 from typing import Literal, Union, Tuple
-from backtest.dataclasses.position import Position
+from backtest.position import Position
 
 class Portfolio():
     def __init__(self, initial_cash: float, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):

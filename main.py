@@ -12,7 +12,7 @@ import pandas as pd
 from backtest.engine import BacktestEngine
 from backtest.portfolio import Portfolio
 from backtest.strategy import Strategy
-from backtest.dataclasses.order import Order
+from backtest.order import Order
 from strategies.simple_moving_average import SimpleMovingAverage # replace with choosen strategy
 
 
