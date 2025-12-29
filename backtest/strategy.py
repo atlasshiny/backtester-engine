@@ -22,19 +22,37 @@ class Strategy():
             Must be overridden. Should return an Order object based on the event and optional history DataFrame.
     """
     def __init__(self, history_window: int | None = None):
+        """
+        Initialize a Strategy instance.
+        Args:
+            history_window (int | None): Number of bars of historical data required for the strategy (optional).
+        """
         self.history_window = history_window
         pass
 
     def on_start(self):
-        """Override this for each individual subclass if needed (Optional Method)"""
+        """
+        Optional method to run logic before the backtest starts.
+        Override this in subclasses if needed.
+        """
         raise NotImplementedError("on_start must be implemented by subclass.")
 
     def on_finish(self):
-        """Override this for each individual subclass if needed (Optional Method)"""
+        """
+        Optional method to run logic after the backtest ends.
+        Override this in subclasses if needed.
+        """
         raise NotImplementedError("on_finish must be implemented by subclass.")
 
     # old expected return value
     # Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]]
     def check_condition(self, event: tuple) -> Order:
-        """Override this for each individual subclass. Should return an Order object."""
+        """
+        Generate an order based on the current market event.
+        Must be overridden in subclasses.
+        Args:
+            event (tuple): The current market event/bar.
+        Returns:
+            Order: The generated order for this bar.
+        """
         raise NotImplementedError("check_condition must be implemented by subclass.")

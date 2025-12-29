@@ -8,6 +8,17 @@ from .broker import Broker
 
 class BacktestEngine():
     def __init__(self, strategy: Strategy, portfolio: Portfolio, data_set: pd.DataFrame, warm_up: int = 0, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
+        """
+        Initialize the BacktestEngine.
+        Args:
+            strategy (Strategy): The trading strategy instance.
+            portfolio (Portfolio): The portfolio instance.
+            data_set (pd.DataFrame): The market data.
+            warm_up (int): Number of bars to use for warm-up (no trading).
+            slippage (float): Slippage rate.
+            commission (float): Commission rate.
+            log_hold (bool): Whether to log HOLD trades.
+        """
         self.strategy = strategy
         self.data_set = data_set
         self.portfolio = portfolio
@@ -15,6 +26,9 @@ class BacktestEngine():
         self.warm_up = warm_up
 
     def run(self):
+        """
+        Run the backtest loop: feed events to the strategy, execute orders, and update portfolio/broker state.
+        """
         pending_order = None
         window_size = getattr(self.strategy, 'history_window', None)
         for idx, event in enumerate(self.data_set.itertuples()):
@@ -39,6 +53,13 @@ class BacktestEngine():
 
                 
     def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):
+        """
+        Run performance analytics and plotting after the backtest.
+        Args:
+            plot (bool): Whether to plot results.
+            save (bool): Whether to save results to file.
+            risk_free_rate (float): Risk-free rate for Sharpe/Sortino.
+        """
         analytics = PerformanceAnalytics()
         # Pass broker.trade_log to analytics for trade statistics
         analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate, trade_log=self.broker.trade_log)

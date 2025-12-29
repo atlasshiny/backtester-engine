@@ -3,6 +3,14 @@ from typing import Literal
 
 class Broker:
     def __init__(self, portfolio, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
+        """
+        Initialize a Broker instance.
+        Args:
+            portfolio (Portfolio): The portfolio to manage.
+            slippage (float): Slippage rate as a decimal (e.g., 0.001 for 0.1%).
+            commission (float): Commission rate as a decimal.
+            log_hold (bool): Whether to log HOLD trades.
+        """
         self.portfolio = portfolio
         self.slippage = slippage
         self.commission = commission
@@ -10,6 +18,17 @@ class Broker:
         self.trade_log = []
 
     def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], qty: int, symbol: str, price: float, commission: float, slippage: float, comment=""):
+        """
+        Log a trade in the broker's trade log.
+        Args:
+            side (str): Trade side ('BUY', 'SELL', 'HOLD').
+            qty (int): Quantity traded.
+            symbol (str): Asset symbol.
+            price (float): Execution price.
+            commission (float): Commission paid.
+            slippage (float): Slippage applied.
+            comment (str): Optional comment.
+        """
         trade = {
             "symbol": symbol,
             "side": side,
@@ -22,6 +41,12 @@ class Broker:
         self.trade_log.append(trade)
 
     def execute(self, event: tuple, order):
+        """
+        Execute an order, update the portfolio, and log the trade.
+        Args:
+            event (tuple): The current market event/bar.
+            order: The order object with side, symbol, qty.
+        """
         price = event.Open
         side = order.side
         symbol = order.symbol

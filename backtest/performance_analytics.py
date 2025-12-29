@@ -7,6 +7,16 @@ class PerformanceAnalytics:
         pass
 
     def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None):
+        """
+        Analyze portfolio performance, print statistics, and plot results.
+        Args:
+            portfolio: The Portfolio instance.
+            data_set (pd.DataFrame): The market data.
+            plot (bool): Whether to plot results.
+            save (bool): Whether to save results to file.
+            risk_free_rate (float): Risk-free rate for Sharpe/Sortino.
+            trade_log (list): List of trade dictionaries for analytics.
+        """
         # convert value history to numpy array for calculations 
         equity = np.array(portfolio.value_history)
         returns = np.diff(equity) / equity[:-1]
