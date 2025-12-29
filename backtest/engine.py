@@ -7,7 +7,7 @@ from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
 
 class BacktestEngine():
-    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker, data_set: pd.DataFrame, warm_up: int = 0):
+    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker: Broker, data_set: pd.DataFrame, warm_up: int = 0):
         """
         Initialize the BacktestEngine.
         Args:
