@@ -46,12 +46,13 @@ class Strategy():
 
     # old expected return value
     # Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]]
-    def check_condition(self, event: tuple) -> Order:
+    def check_condition(self, event: tuple, history: pd.DataFrame | None = None) -> Order:
         """
-        Generate an order based on the current market event.
+        Generate an order. 'history' is optional to support the hybrid engine.
         Must be overridden in subclasses.
         Args:
             event (tuple): The current market event/bar.
+            history (pd.DataFrame, optional): Historical data slice if required by strategy.
         Returns:
             Order: The generated order for this bar.
         """
