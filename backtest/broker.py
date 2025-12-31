@@ -16,8 +16,9 @@ class Broker:
         self.commission = commission
         self.log_hold = log_hold
         self.trade_log = []
+        self.last_prices = {}
 
-    def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], qty: int, symbol: str, price: float, commission: float, slippage: float, comment=""):
+    def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], qty: int, symbol: str, price: float, commission: float, slippage: float, comment="", timestamp=None, order_type: str | None = None, limit_price: float | None = None):
         """
         Log a trade in the broker's trade log.
         Args:
@@ -28,14 +29,20 @@ class Broker:
             commission (float): Commission paid.
             slippage (float): Slippage applied.
             comment (str): Optional comment.
+            timestamp: Bar timestamp/date associated with this log entry.
+            order_type (str | None): Order type (e.g., 'MARKET', 'LIMIT').
+            limit_price (float | None): Limit price if applicable.
         """
         trade = {
+            "timestamp": timestamp,
             "symbol": symbol,
             "side": side,
             "qty": qty,
             "price": price,
             "commission": commission,
             "slippage": slippage,
+            "order_type": order_type,
+            "limit_price": limit_price,
             "comment": comment
         }
         self.trade_log.append(trade)
@@ -56,20 +63,29 @@ class Broker:
         qty = order.qty
         order_type = getattr(order, 'order_type', 'MARKET')
         limit_price = getattr(order, 'limit_price', None)
+        timestamp = getattr(order, 'timestamp', None)
+        if timestamp is None:
+            timestamp = getattr(event, 'Date', None)
+        if timestamp is None:
+            timestamp = getattr(event, 'Index', None)
+
+        # Update last known close for valuation (works for multi-asset)
+        if symbol is not None:
+            self.last_prices[symbol] = event.Close
 
         # LIMIT order logic (use event.Low for buy, event.High for sell)
         if order_type == "LIMIT":
             if side == "BUY":
                 # Buy limit: fill if event.Low <= limit_price
                 if limit_price is None or price_low > limit_price:
-                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (BUY)")
-                    self.portfolio.update_value_history(event.Close)
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (BUY)", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
+                    self.portfolio.update_value_history(self.last_prices)
                     return
             if side == "SELL":
                 # Sell limit: fill if event.High >= limit_price
                 if limit_price is None or price_high < limit_price:
-                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (SELL)")
-                    self.portfolio.update_value_history(event.Close)
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (SELL)", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
+                    self.portfolio.update_value_history(self.last_prices)
                     return
 
         match side:
@@ -81,12 +97,12 @@ class Broker:
                 if self.portfolio.cash >= total_cost:
                     self.portfolio.cash -= total_cost
                     self.portfolio.add_position(symbol=symbol, qty=qty, price=exec_price)
-                    self.log_trade(side=side, qty=qty, symbol=symbol, price=exec_price, commission=commission, slippage=self.slippage)
+                    self.log_trade(side=side, qty=qty, symbol=symbol, price=exec_price, commission=commission, slippage=self.slippage, timestamp=timestamp, order_type=order_type, limit_price=limit_price)
                 else:
-                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Funds")
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Funds", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
             case "HOLD":
                 if self.log_hold:
-                    self.log_trade(side=side, qty=qty, symbol=symbol, price=price, commission=0.0, slippage=0.0, comment="HOLD")
+                    self.log_trade(side=side, qty=qty, symbol=symbol, price=price, commission=0.0, slippage=0.0, comment="HOLD", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
             case "SELL":
                 exec_price = price * (1 - self.slippage)
                 trade_value = exec_price * qty
@@ -94,8 +110,8 @@ class Broker:
                 if symbol in self.portfolio.positions and self.portfolio.positions[symbol].qty >= qty:
                     self.portfolio.cash += trade_value - commission
                     self.portfolio.remove_position(symbol=symbol, qty=qty)
-                    self.log_trade(side=side, qty=qty, symbol=symbol, price=exec_price, commission=commission, slippage=self.slippage)
+                    self.log_trade(side=side, qty=qty, symbol=symbol, price=exec_price, commission=commission, slippage=self.slippage, timestamp=timestamp, order_type=order_type, limit_price=limit_price)
                 else:
-                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Position")
-        self.portfolio.update_value_history(event.Close)
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Position", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
+        self.portfolio.update_value_history(self.last_prices)
 
