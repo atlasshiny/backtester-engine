@@ -2,6 +2,7 @@ from backtest import BacktestEngine
 from backtest import Strategy
 from backtest import Portfolio
 from backtest import Order
+from backtest import Broker
 import pandas as pd
 import cProfile
 
@@ -20,12 +21,13 @@ class TestStrategy(Strategy):
             return Order(symbol=event.Symbol, side="HOLD", qty=0)
 
 strat = TestStrategy()
-account = Portfolio(5000.62, slippage=0.001, commission=0.001)
+account = Portfolio(5000.62)
+broker = Broker(account, slippage=0.001, commission=0.001)
 
 # turn the data set csv into a dataframe
 data_set = pd.read_csv("./data/synthetic.csv")
 
-engine = BacktestEngine(strategy=strat, portfolio=account, data_set=data_set)
+engine = BacktestEngine(strategy=strat, portfolio=account, broker=broker, data_set=data_set)
 engine.run()
 engine.results(plot=True, save=False)
 # cProfile.run('engine.run()', sort='cumtime')
