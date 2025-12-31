@@ -24,7 +24,10 @@ def main():
     data_set = pd.read_csv(data_path)    
 
     # Generate strategy indicators if needed and attach to data_set
+    # If Symbol column exists, sort by Date then Symbol (long format)
     data_processing = TechnicalIndicators(data=data_set)
+    if 'Symbol' in data_set.columns:
+        data_processing.data = data_processing.data.sort_values(['Date', 'Symbol']).reset_index(drop=True)
     data_processing.simple_moving_average()
     data_set = data_processing.final_df()
 
