@@ -43,13 +43,25 @@ class Portfolio:
             else:
                 pos.remove(qty)
 
-    def update_value_history(self, current_price):
+    def update_value_history(self, current_price: float | dict):
         """
         Update the portfolio's value history with the current total value.
         Args:
-            current_price (float): The price to use for all positions (assumes single-asset or same price for all).
+            current_price (float | dict):
+                - float: use the same price for all positions (single-asset mode).
+                - dict: mapping {symbol: price} for multi-asset valuation.
         """
-        value = self.cash + sum(pos.qty * current_price for pos in self.positions.values())
+        if isinstance(current_price, dict):
+            value = self.cash
+            for sym, pos in self.positions.items():
+                px = current_price.get(sym)
+                if px is None:
+                    # If we don't have a price yet, fall back to avg_price
+                    px = pos.avg_price
+                value += pos.qty * px
+        else:
+            value = self.cash + sum(pos.qty * current_price for pos in self.positions.values())
+
         self.value_history.append(value)
 
     def portfolio_value_snapshot(self, price: float) -> float:
