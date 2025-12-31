@@ -1,11 +1,37 @@
+"""backtest.portfolio
+
+Portfolio/account state.
+
+The portfolio tracks:
+- Cash balance
+- Open positions (per symbol)
+- Equity curve (value_history)
+
+Valuation
+---------
+Value history is updated using either:
+- A single float price (legacy / single-asset style), or
+- A {symbol: price} mapping for multi-asset valuation.
+"""
+
 from backtest.position import Position
 
 class Portfolio:
     def __init__(self, initial_cash: float):
         """
-        Initialize a Portfolio instance.
-        Args:
-            initial_cash (float): The starting cash for the portfolio.
+        Create a new Portfolio.
+
+        Parameters
+        ----------
+        initial_cash:
+            Starting cash balance.
+
+        Attributes
+        ----------
+        positions:
+            Dict mapping symbol -> Position.
+        value_history:
+            List of portfolio equity values over time (as updated by the broker).
         """
         self.initial_cash = initial_cash
         self.cash = initial_cash
@@ -14,12 +40,19 @@ class Portfolio:
 
     def add_position(self, symbol: str, qty: int, price: float):
         """
-        Add to or create a position in the portfolio.
-        If the symbol already exists, increases the quantity and updates the average price.
-        Args:
-            symbol (str): The asset symbol.
-            qty (int): Quantity to add.
-            price (float): Price at which the quantity is added.
+        Add to (or create) a position.
+
+        If the symbol already exists, increases quantity and updates average cost
+        using a simple weighted-average approach.
+
+        Parameters
+        ----------
+        symbol:
+            Asset identifier.
+        qty:
+            Quantity to add.
+        price:
+            Executed unit price.
         """
         if symbol in self.positions:
             self.positions[symbol].add(qty, price)
@@ -28,10 +61,13 @@ class Portfolio:
 
     def remove_position(self, symbol: str, qty: int):
         """
-        Remove quantity from a position, or delete the position if fully sold.
-        Args:
-            symbol (str): The asset symbol.
-            qty (int): Quantity to remove.
+        Remove quantity from a position.
+
+        If qty equals the full position size, the position is deleted.
+
+        Notes
+        -----
+        This is a long-only position model; it does not support negative quantities.
         """
         if symbol in self.positions:
             pos = self.positions[symbol]
@@ -45,11 +81,18 @@ class Portfolio:
 
     def update_value_history(self, current_price: float | dict):
         """
-        Update the portfolio's value history with the current total value.
-        Args:
-            current_price (float | dict):
-                - float: use the same price for all positions (single-asset mode).
-                - dict: mapping {symbol: price} for multi-asset valuation.
+        Append a new portfolio equity value to value_history.
+
+        Parameters
+        ----------
+        current_price:
+            - float: use the same price for all positions (single-asset style)
+            - dict: mapping {symbol: price} for multi-asset valuation
+
+        Notes
+        -----
+        If a symbol is missing from the provided price mapping, this method falls
+        back to the position's avg_price.
         """
         if isinstance(current_price, dict):
             value = self.cash
@@ -66,11 +109,9 @@ class Portfolio:
 
     def portfolio_value_snapshot(self, price: float) -> float:
         """
-        Get a snapshot of the portfolio's total value at a given price.
-        Args:
-            price (float): The price to use for all positions.
-        Returns:
-            float: The total portfolio value (cash + market value of all positions).
+        Compute total portfolio equity using a single price for all symbols.
+
+        This is mainly a convenience for single-asset experiments.
         """
         if not self.positions:
             return self.cash

@@ -1,17 +1,28 @@
+"""backtest.position
+
+Lightweight position record.
+
+This module intentionally keeps the position model minimal:
+- Long-only quantity tracking
+- Average cost basis
+- Market value computation given an external price
+"""
+
 from dataclasses import dataclass
 
 @dataclass
 class Position:
+    """Represents an open position in a single symbol."""
     symbol: str
     qty: int
     avg_price: float
 
     def add(self, qty: int, price: float):
         """
-        Add quantity to the position and update the average price.
-        Args:
-            qty (int): Quantity to add.
-            price (float): Price at which to add.
+        Increase position size and update average cost basis.
+
+        Uses weighted-average cost:
+        avg_price := (old_qty*old_avg + qty*price) / (old_qty + qty)
         """
         total_cost = self.qty * self.avg_price + qty * price
         self.qty += qty
@@ -19,19 +30,23 @@ class Position:
 
     def remove(self, qty: int):
         """
-        Remove quantity from the position.
-        Args:
-            qty (int): Quantity to remove.
+        Decrease position size.
+
+        Notes
+        -----
+        This does not realize PnL; realized PnL is computed in analytics by pairing
+        buys/sells from the broker trade log.
         """
         assert qty <= self.qty
         self.qty -= qty
 
     def market_value(self, price: float) -> float:
         """
-        Calculate the market value of the position at a given price.
-        Args:
-            price (float): The current market price.
-        Returns:
-            float: The market value of the position.
+        Compute current market value.
+
+        Parameters
+        ----------
+        price:
+            Current unit price.
         """
         return self.qty * price

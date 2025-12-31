@@ -1,15 +1,26 @@
-"""
-The backtest module provides core classes and logic for running trading strategy backtests,
-including the engine, broker, portfolio, order, analytics, and strategy interfaces.
+"""backtest package
 
-Initalization Order
-- Strategy
-- Portfolio
-- Broker
-- Engine
+Core components for a lightweight event-driven backtesting engine.
 
-After initalization, use engine.run() and engine.results() to run the backtest and get statistics
+Typical usage
+-------------
+1) Load market data into a pandas DataFrame.
+	- Recommended: long format with columns including Date, Symbol, Open, High, Low,
+	  Close, Volume (and any indicators you want).
+2) (Optional) Precompute indicators with TechnicalIndicators and attach them to
+	the dataset.
+3) Create:
+	- Strategy
+	- Portfolio
+	- Broker
+	- BacktestEngine
+4) Run:
+	engine.run()
+	engine.results(...)
 
+Timing model
+------------
+Orders generated at time t are executed on the next bar for that symbol.
 """
 
 from .engine import BacktestEngine

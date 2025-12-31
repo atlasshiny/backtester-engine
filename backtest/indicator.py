@@ -1,3 +1,23 @@
+"""backtest.indicator
+
+Technical indicator computation utilities.
+
+These helpers are designed to precompute indicators on the full dataset *before*
+running the backtest so strategies can read indicator values directly from the
+event.
+
+Supported input formats
+-----------------------
+- Multi-asset long format: requires a Symbol column. Each indicator is computed
+    per symbol via groupby/transform.
+- Single-asset: computed on the full series.
+
+Important
+---------
+For time-series correctness, the data should be sorted in chronological order
+within each symbol (typically by Date).
+"""
+
 import pandas as pd
 from typing import List
 
@@ -5,6 +25,14 @@ from typing import List
 
 class TechnicalIndicators:
     def __init__(self, data):
+                """Create an indicator helper bound to a dataset.
+
+                Parameters
+                ----------
+                data:
+                        Any object convertible to a pandas DataFrame. The class stores and
+                        mutates a DataFrame copy in self.data.
+                """
         self.data = data
         pass
     
@@ -16,6 +44,16 @@ class TechnicalIndicators:
             fast_window (int): Window size for the fast SMA.
             slow_window (int): Window size for the slow SMA.
             column (str | None): Column name to calculate SMA on. Defaults to last column if None.
+
+        Output
+        ------
+        Adds columns:
+        - SMA_fast
+        - SMA_slow
+
+        Notes
+        -----
+        The first (window-1) rows per symbol will be NaN due to rolling warmup.
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
@@ -34,6 +72,11 @@ class TechnicalIndicators:
         Parameters:
             window (int): Window size for the EMA.
             column (str | None): Column name to calculate EMA on. Defaults to last column if None.
+
+        Output
+        ------
+        Adds column:
+        - EMA
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
@@ -50,6 +93,11 @@ class TechnicalIndicators:
         Parameters:
             window (int): Window size for the RSI calculation.
             column (str | None): Column name to calculate RSI on. Defaults to last column if None.
+
+        Output
+        ------
+        Adds column:
+        - RSI
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
@@ -77,6 +125,12 @@ class TechnicalIndicators:
             window (int): Window size for the moving average and standard deviation.
             num_std (float): Number of standard deviations for the bands.
             column (str | None): Column name to calculate bands on. Defaults to last column if None.
+
+        Output
+        ------
+        Adds columns:
+        - BB_upper
+        - BB_lower
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
@@ -98,4 +152,5 @@ class TechnicalIndicators:
         self.data = df
 
     def final_df(self):
+        """Return the current DataFrame with all computed indicators."""
         return self.data

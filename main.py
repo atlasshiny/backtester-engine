@@ -41,7 +41,7 @@ def main():
     broker = Broker(portfolio=account, slippage=0.001, commission=0.001, log_hold=False)
 
     # Create and run engine
-    engine = BacktestEngine(strategy=strategy, portfolio=account, broker=broker, data_set=data_set, warm_up=30)
+    engine = BacktestEngine(strategy=strategy, portfolio=account, broker=broker, data_set=data_set, warm_up=30, group_by_date=True)
 
     engine.run()
     engine.results(plot=True, save=False)

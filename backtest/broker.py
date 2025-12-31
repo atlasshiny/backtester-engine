@@ -1,15 +1,44 @@
+"""backtest.broker
+
+Broker/execution simulator.
+
+Responsibilities
+----------------
+- Apply a simplified fill model for MARKET and LIMIT orders on OHLC bars.
+- Apply slippage and commission.
+- Update the Portfolio's cash/positions.
+- Maintain a trade log and a last-known price map for valuation.
+
+Execution model
+---------------
+The engine schedules orders as "pending" and executes them on the next bar for the
+same symbol (next-bar execution). The broker itself does not schedule; it only
+executes given an event and an order.
+"""
 
 from typing import Literal
 
 class Broker:
     def __init__(self, portfolio, slippage: float = 0.001, commission: float = 0.001, log_hold: bool = False):
         """
-        Initialize a Broker instance.
-        Args:
-            portfolio (Portfolio): The portfolio to manage.
-            slippage (float): Slippage rate as a decimal (e.g., 0.001 for 0.1%).
-            commission (float): Commission rate as a decimal.
-            log_hold (bool): Whether to log HOLD trades.
+        Create a Broker.
+
+        Parameters
+        ----------
+        portfolio:
+            Portfolio instance to mutate.
+        slippage:
+            Proportional slippage applied to execution price.
+            BUY uses (1 + slippage); SELL uses (1 - slippage).
+        commission:
+            Proportional commission charged on trade notional.
+        log_hold:
+            If True, HOLD signals are written into the trade log.
+
+        Notes
+        -----
+        The broker keeps a last-known Close price per symbol (updated on every bar)
+        and passes that to the portfolio for multi-asset valuation.
         """
         self.portfolio = portfolio
         self.slippage = slippage
@@ -20,18 +49,22 @@ class Broker:
 
     def log_trade(self, side: Literal["BUY", "SELL", "HOLD"], qty: int, symbol: str, price: float, commission: float, slippage: float, comment="", timestamp=None, order_type: str | None = None, limit_price: float | None = None):
         """
-        Log a trade in the broker's trade log.
-        Args:
-            side (str): Trade side ('BUY', 'SELL', 'HOLD').
-            qty (int): Quantity traded.
-            symbol (str): Asset symbol.
-            price (float): Execution price.
-            commission (float): Commission paid.
-            slippage (float): Slippage applied.
-            comment (str): Optional comment.
-            timestamp: Bar timestamp/date associated with this log entry.
-            order_type (str | None): Order type (e.g., 'MARKET', 'LIMIT').
-            limit_price (float | None): Limit price if applicable.
+        Append a record to trade_log.
+
+        The trade log is a list of dictionaries with these keys:
+        - timestamp: datetime-like or raw value from the event/order
+        - symbol: str
+        - side: 'BUY' | 'SELL' | 'HOLD'
+        - qty: int (0 for rejected/unfilled)
+        - price: float | None
+        - commission: float
+        - slippage: float
+        - order_type: 'MARKET' | 'LIMIT' | None
+        - limit_price: float | None
+        - comment: str
+
+        This structure is intentionally simple so PerformanceAnalytics can convert
+        it directly into a DataFrame.
         """
         trade = {
             "timestamp": timestamp,
@@ -49,11 +82,29 @@ class Broker:
 
     def execute(self, event: tuple, order):
         """
-        Execute an order, update the portfolio, and log the trade.
-        Supports MARKET and LIMIT orders.
-        Args:
-            event (tuple): The current market event/bar.
-            order: The order object with side, symbol, qty, order_type, limit_price.
+        Execute an Order on a given event/bar.
+
+        Parameters
+        ----------
+        event:
+            A row from DataFrame.itertuples(), expected to have Open/High/Low/Close,
+            and optionally Date/Symbol.
+        order:
+            Order-like object with side, symbol, qty, and optional order_type,
+            limit_price, timestamp.
+
+        Fill model
+        ----------
+        - MARKET: executes on event.Open with slippage applied.
+        - LIMIT:
+            - BUY fills if event.Low <= limit_price
+            - SELL fills if event.High >= limit_price
+            If unfilled, logs a qty=0 record and does not change positions.
+
+        Timestamping
+        -----------
+        The broker attaches a timestamp to each log entry. Resolution order:
+        order.timestamp -> event.Date -> event.Index.
         """
         price = event.Open
         price_low = event.Low

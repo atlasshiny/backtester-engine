@@ -3,19 +3,56 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class PerformanceAnalytics:
+        """Compute performance statistics and generate plots.
+
+        Inputs
+        ------
+        - Portfolio.value_history: equity series updated by the broker.
+        - trade_log: list of dictionaries (typically Broker.trade_log).
+
+        Notes
+        -----
+        - If the engine is run in row-by-row multi-asset mode (one step per (Date, Symbol)),
+            then "returns" are computed per event, not per date. For per-date returns,
+            prefer running the engine with group_by_date=True.
+        - Trade pairing logic is a simple FIFO match per symbol and assumes long-only.
+            It does not fully support partial fills/scale-in/scale-out accounting.
+        """
+
     def __init__(self):
+                """Create a PerformanceAnalytics instance."""
         pass
 
     def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None):
         """
-        Analyze portfolio performance, print statistics, and plot results.
-        Args:
-            portfolio: The Portfolio instance.
-            data_set (pd.DataFrame): The market data.
-            plot (bool): Whether to plot results.
-            save (bool): Whether to save results to file.
-            risk_free_rate (float): Risk-free rate for Sharpe/Sortino.
-            trade_log (list): List of trade dictionaries for analytics.
+        Analyze portfolio performance, print statistics, and (optionally) plot results.
+
+        Parameters
+        ----------
+        portfolio:
+            Portfolio instance containing cash, positions, and value_history.
+        data_set:
+            Market data DataFrame used for the run (used for price plotting).
+        plot:
+            When True, show Matplotlib figures.
+        save:
+            When True, write ./trade_log.csv and ./backtest_metrics.csv.
+        risk_free_rate:
+            Risk-free rate used in Sharpe/Sortino calculations. This is treated as a
+            per-period rate aligned to the return series being computed.
+        trade_log:
+            List[dict] with Broker log schema. Expected keys include:
+            timestamp, symbol, side, qty, price, commission, slippage, order_type,
+            limit_price, comment.
+
+        Output
+        ------
+        Prints summary statistics to stdout and optionally shows/saves plots.
+
+        Caveats
+        -------
+        Annualization uses sqrt(252) by default. This is only appropriate when the
+        returns series represents daily steps.
         """
         # convert value history to numpy array for calculations
         equity = np.array(portfolio.value_history, dtype=float)
