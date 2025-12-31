@@ -43,14 +43,35 @@ class Broker:
     def execute(self, event: tuple, order):
         """
         Execute an order, update the portfolio, and log the trade.
+        Supports MARKET and LIMIT orders.
         Args:
             event (tuple): The current market event/bar.
-            order: The order object with side, symbol, qty.
+            order: The order object with side, symbol, qty, order_type, limit_price.
         """
         price = event.Open
+        price_low = event.Low
+        price_high = event.High
         side = order.side
         symbol = order.symbol
         qty = order.qty
+        order_type = getattr(order, 'order_type', 'MARKET')
+        limit_price = getattr(order, 'limit_price', None)
+
+        # LIMIT order logic (use event.Low for buy, event.High for sell)
+        if order_type == "LIMIT":
+            if side == "BUY":
+                # Buy limit: fill if event.Low <= limit_price
+                if limit_price is None or price_low > limit_price:
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (BUY)")
+                    self.portfolio.update_value_history(event.Close)
+                    return
+            if side == "SELL":
+                # Sell limit: fill if event.High >= limit_price
+                if limit_price is None or price_high < limit_price:
+                    self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=0.0, comment="Unfilled Limit Order (SELL)")
+                    self.portfolio.update_value_history(event.Close)
+                    return
+
         match side:
             case "BUY":
                 exec_price = price * (1 + self.slippage)
