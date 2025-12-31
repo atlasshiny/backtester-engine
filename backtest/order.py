@@ -14,4 +14,6 @@ class Order:
     symbol: str
     side: Literal["BUY", "SELL", "HOLD"]
     qty: int
+    order_type: Literal["MARKET", "LIMIT"] = "MARKET"
+    limit_price: float | None = None
     timestamp: int | None = None
