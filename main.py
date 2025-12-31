@@ -12,16 +12,24 @@ import pandas as pd
 from backtest import BacktestEngine
 from backtest import Portfolio
 from backtest import Broker
+from backtest import TechnicalIndicators
 from strategies.simple_moving_average import SimpleMovingAverage # replace with choosen strategy
 
+# follow the steps outlines in the backtest module description. 
+# after loading data, if technical indicators are needed add them to dataset using the TechnicalIndicators class
 
 def main():
     # Load data
     data_path = os.path.join('data', 'synthetic.csv')
-    data_set = pd.read_csv(data_path)
+    data_set = pd.read_csv(data_path)    
+
+    # Generate strategy indicators if needed and attach to data_set
+    data_processing = TechnicalIndicators(data=data_set)
+    data_processing.simple_moving_average()
+    data_set = data_processing.final_df()
 
     # Choose strategy (replace with your own as needed)
-    strategy = SimpleMovingAverage(fast_window=7, slow_window=25)
+    strategy = SimpleMovingAverage()
 
     # Create portfolio
     account = Portfolio(initial_cash=10000)
