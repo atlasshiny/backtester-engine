@@ -35,15 +35,16 @@ class BacktestEngine():
         pending_order = None
         window_size = getattr(self.strategy, 'history_window', None)
         for idx, event in enumerate(self.data_set.itertuples()):
-            # Always call strategy for warm-up bars, but do not execute orders
-            if window_size is not None and window_size > 0:
+            if window_size and window_size > 0:
+                # Mode B: Only slice if strategy.history_window is set
                 history = self.data_set.iloc[max(0, idx - window_size + 1):idx + 1]
                 signal = self.strategy.check_condition(event, history)
             else:
+                # Mode A: Fast path - skip slicing entirely
                 signal = self.strategy.check_condition(event)
-
+                
             if idx < self.warm_up:
-                continue  # Don't send signals or execute orders during warm-up
+                continue 
 
             # execute the previous bar's decision using the CURRENT bar's prices
             if pending_order is not None:
