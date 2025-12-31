@@ -32,28 +32,59 @@ class BacktestEngine():
         except NotImplementedError:
             pass
 
-        pending_order = None
         window_size = getattr(self.strategy, 'history_window', None)
+
+        # Multi-asset safe state
+        pending_order_by_symbol: dict[str, object] = {}
+        warmup_count_by_symbol: dict[str, int] = {}
+        bar_index_by_symbol: dict[str, int] = {}
+
+        # If strategy requests history, pre-split by symbol to avoid mixing assets in history slices
+        data_by_symbol = None
+        if window_size and window_size > 0 and 'Symbol' in self.data_set.columns:
+            data_by_symbol = {sym: grp.reset_index(drop=True) for sym, grp in self.data_set.groupby('Symbol', sort=False)}
+
         for idx, event in enumerate(self.data_set.itertuples()):
+            symbol = getattr(event, 'Symbol', None)
+            if symbol is None:
+                # Fallback for unexpected schemas
+                symbol = getattr(event, 'Index', None)
+
             if window_size and window_size > 0:
                 # Mode B: Only slice if strategy.history_window is set
-                history = self.data_set.iloc[max(0, idx - window_size + 1):idx + 1]
-                signal = self.strategy.check_condition(event, history)
+                if data_by_symbol is not None and symbol in data_by_symbol:
+                    sym_i = bar_index_by_symbol.get(symbol, 0)
+                    history = data_by_symbol[symbol].iloc[max(0, sym_i - window_size + 1): sym_i + 1]
+                    signal = self.strategy.check_condition(event, history)
+                else:
+                    history = self.data_set.iloc[max(0, idx - window_size + 1):idx + 1]
+                    signal = self.strategy.check_condition(event, history)
             else:
                 # Mode A: Fast path - skip slicing entirely
                 signal = self.strategy.check_condition(event)
-                
-            if idx < self.warm_up:
-                continue 
 
-            # execute the previous bar's decision using the CURRENT bar's prices
-            if pending_order is not None:
+            # Per-symbol warmup for long-format data
+            if self.warm_up and symbol is not None:
+                warm_i = warmup_count_by_symbol.get(symbol, 0)
+                if warm_i < self.warm_up:
+                    warmup_count_by_symbol[symbol] = warm_i + 1
+                    bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
+                    continue
+            elif idx < self.warm_up:
+                if symbol is not None:
+                    bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
+                continue
+
+            # execute the previous bar's decision for THIS symbol using the CURRENT bar's prices
+            if symbol is not None and symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                 self.broker.execute(
                     event=event,
-                    order=pending_order
+                    order=pending_order_by_symbol[symbol]
                 )
 
-            pending_order = signal
+            pending_order_by_symbol[symbol] = signal
+            if symbol is not None:
+                bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
 
         try:
             self.strategy.on_finish()
