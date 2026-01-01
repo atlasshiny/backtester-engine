@@ -1,4 +1,6 @@
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -218,47 +220,55 @@ class PerformanceAnalytics:
 
         # plots
         if plot:
-            # equity curve
-            plt.figure(figsize=(10, 5))
-            plt.plot(equity, label='Equity Curve', color='tab:blue')
-            plt.xlabel('Time (events)')
-            plt.ylabel('Portfolio Value')
-            plt.title('Equity Curve')
-            plt.legend()
-            plt.show()
+            # Create a combined figure with subplots for better performance
+            fig = plt.figure(figsize=(16, 12))
+            
+            # 1) Equity curve
+            ax1 = fig.add_subplot(3, 2, 1)
+            ax1.plot(equity, label='Equity Curve', color='tab:blue', rasterized=True)
+            ax1.set_xlabel('Time (events)')
+            ax1.set_ylabel('Portfolio Value')
+            ax1.set_title('Equity Curve')
+            ax1.legend()
+            ax1.grid(False)
+            ax1.spines['top'].set_visible(False)
+            ax1.spines['right'].set_visible(False)
 
-            # drawdown (underwater)
+            # 2) Drawdown (underwater)
             if len(drawdowns):
-                plt.figure(figsize=(10, 3))
-                plt.plot(drawdowns * -100.0, color='tab:red')
-                plt.xlabel('Time (events)')
-                plt.ylabel('Drawdown (%)')
-                plt.title('Drawdown (Underwater)')
-                plt.tight_layout()
-                plt.show()
+                ax2 = fig.add_subplot(3, 2, 2)
+                ax2.plot(drawdowns * -100.0, color='tab:red', rasterized=True)
+                ax2.set_xlabel('Time (events)')
+                ax2.set_ylabel('Drawdown (%)')
+                ax2.set_title('Drawdown (Underwater)')
+                ax2.grid(False)
+                ax2.spines['top'].set_visible(False)
+                ax2.spines['right'].set_visible(False)
 
-            # returns distribution
+            # 3) Returns distribution
             if len(returns):
-                plt.figure(figsize=(8, 4))
-                plt.hist(returns, bins=50, color='tab:purple', alpha=0.8)
-                plt.xlabel('Per-step returns')
-                plt.ylabel('Frequency')
-                plt.title('Returns Distribution')
-                plt.tight_layout()
-                plt.show()
+                ax3 = fig.add_subplot(3, 2, 3)
+                ax3.hist(returns, bins=50, color='tab:purple', alpha=0.8)
+                ax3.set_xlabel('Per-step returns')
+                ax3.set_ylabel('Frequency')
+                ax3.set_title('Returns Distribution')
+                ax3.grid(False)
+                ax3.spines['top'].set_visible(False)
+                ax3.spines['right'].set_visible(False)
 
-            # trade PnL distribution + per-symbol PnL
+            # 4) Trade PnL distribution
             if trade_pairs:
                 net_pnls = np.array([tp['net_pnl'] for tp in trade_pairs], dtype=float)
-                plt.figure(figsize=(8, 4))
-                plt.hist(net_pnls, bins=40, color='tab:green', alpha=0.8)
-                plt.xlabel('Trade PnL (net)')
-                plt.ylabel('Frequency')
-                plt.title('Trade PnL Distribution (Net)')
-                plt.tight_layout()
-                plt.show()
+                ax4 = fig.add_subplot(3, 2, 4)
+                ax4.hist(net_pnls, bins=40, color='tab:green', alpha=0.8)
+                ax4.set_xlabel('Trade PnL (net)')
+                ax4.set_ylabel('Frequency')
+                ax4.set_title('Trade PnL Distribution (Net)')
+                ax4.grid(False)
+                ax4.spines['top'].set_visible(False)
+                ax4.spines['right'].set_visible(False)
 
-                # per-symbol PnL (net)
+                # 5) Per-symbol PnL
                 sym_pnl = {}
                 for tp in trade_pairs:
                     sym = tp['entry'].get('symbol')
@@ -266,17 +276,18 @@ class PerformanceAnalytics:
                         continue
                     sym_pnl[sym] = sym_pnl.get(sym, 0.0) + float(tp['net_pnl'])
                 if sym_pnl:
-                    plt.figure(figsize=(10, 4))
+                    ax5 = fig.add_subplot(3, 2, 5)
                     keys = list(sym_pnl.keys())
                     vals = [sym_pnl[k] for k in keys]
-                    plt.bar(keys, vals, color='tab:blue', alpha=0.8)
-                    plt.xticks(rotation=45, ha='right')
-                    plt.ylabel('PnL (net)')
-                    plt.title('PnL by Symbol (Net)')
-                    plt.tight_layout()
-                    plt.show()
+                    ax5.bar(keys, vals, color='tab:blue', alpha=0.8)
+                    ax5.set_xticklabels(keys, rotation=45, ha='right')
+                    ax5.set_ylabel('PnL (net)')
+                    ax5.set_title('PnL by Symbol (Net)')
+                    ax5.grid(False)
+                    ax5.spines['top'].set_visible(False)
+                    ax5.spines['right'].set_visible(False)
 
-            # price vs equity (only plot a single symbol's Close if multi-asset)
+            # 6) Price vs Equity (dual axis)
             if 'Symbol' in data_set.columns:
                 first_symbol = data_set['Symbol'].iloc[0]
                 close_series = data_set[data_set['Symbol'] == first_symbol]['Close'].values
@@ -285,21 +296,21 @@ class PerformanceAnalytics:
                 close_series = data_set['Close'].values
                 title_suffix = ""
 
-            plt.figure(figsize=(12, 6))
-            ax1 = plt.gca()
-            ax1.plot(equity, color='tab:blue', label='Equity Curve')
-            ax1.set_xlabel('Time (events)')
-            ax1.set_ylabel('Portfolio Value', color='tab:blue')
-            ax1.tick_params(axis='y', labelcolor='tab:blue')
-
-            ax2 = ax1.twinx()
-            ax2.plot(close_series, color='tab:orange', label='Price (Close)')
-            ax2.set_ylabel('Price', color='tab:orange')
-            ax2.tick_params(axis='y', labelcolor='tab:orange')
-
-            plt.title('Equity and Price Curve' + title_suffix)
-            fig = plt.gcf()
-            fig.tight_layout()
+            ax6 = fig.add_subplot(3, 2, 6)
+            ax6_twin = ax6.twinx()
+            ax6.plot(equity, color='tab:blue', label='Equity Curve', rasterized=True)
+            ax6.set_xlabel('Time (events)')
+            ax6.set_ylabel('Portfolio Value', color='tab:blue')
+            ax6.tick_params(axis='y', labelcolor='tab:blue')
+            ax6_twin.plot(close_series, color='tab:orange', label='Price (Close)', rasterized=True)
+            ax6_twin.set_ylabel('Price', color='tab:orange')
+            ax6_twin.tick_params(axis='y', labelcolor='tab:orange')
+            ax6.set_title('Equity and Price Curve' + title_suffix)
+            ax6.grid(False)
+            ax6.spines['top'].set_visible(False)
+            ax6.spines['right'].set_visible(False)
+            
+            plt.tight_layout()
             plt.show()
 
         if save:
