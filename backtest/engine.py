@@ -37,6 +37,7 @@ from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
+from collections import namedtuple
 
 class BacktestEngine():
     """Coordinates the backtest loop.
@@ -123,19 +124,24 @@ class BacktestEngine():
         if self.group_by_date and 'Date' in self.data_set.columns:
             grouped = self.data_set.groupby('Date', sort=False)
             for _, date_df in grouped:
-                # Pre-extract Symbol array for faster access
-                symbol_arr = date_df['Symbol'].values if 'Symbol' in date_df.columns else None
-                events_list = list(date_df.itertuples(index=False))
+                # Convert to numpy arrays once for faster access (avoid itertuples overhead)
+                arrays = {col: date_df[col].values for col in date_df.columns}
+                n_rows = len(date_df)
+                
+                # Create event namedtuple once
+                EventTuple = namedtuple('Event', date_df.columns)
                 
                 # 1) Execute previous bar's decision for each symbol using this bar's prices
-                for idx, event in enumerate(events_list):
-                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                for idx in range(n_rows):
+                    event = EventTuple(*[arrays[col][idx] for col in date_df.columns])
+                    symbol = arrays.get('Symbol', np.array(['SINGLE'] * n_rows))[idx]
                     if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                         self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
 
                 # 2) Generate new signals for each symbol for this timestamp
-                for idx, event in enumerate(events_list):
-                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                for idx in range(n_rows):
+                    event = EventTuple(*[arrays[col][idx] for col in date_df.columns])
+                    symbol = arrays.get('Symbol', np.array(['SINGLE'] * n_rows))[idx]
 
                     # Per-symbol warmup (counted in bars, not rows)
                     if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
