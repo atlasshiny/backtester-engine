@@ -279,7 +279,8 @@ class PerformanceAnalytics:
                     ax5 = fig.add_subplot(3, 2, 5)
                     keys = list(sym_pnl.keys())
                     vals = [sym_pnl[k] for k in keys]
-                    ax5.bar(keys, vals, color='tab:blue', alpha=0.8)
+                    ax5.bar(range(len(keys)), vals, color='tab:blue', alpha=0.8)
+                    ax5.set_xticks(range(len(keys)))
                     ax5.set_xticklabels(keys, rotation=45, ha='right')
                     ax5.set_ylabel('PnL (net)')
                     ax5.set_title('PnL by Symbol (Net)')
@@ -311,7 +312,11 @@ class PerformanceAnalytics:
             ax6.spines['right'].set_visible(False)
             
             plt.tight_layout()
-            plt.show()
+            # Save figure to disk instead of showing
+            output_path = './backtest_results.png'
+            plt.savefig(output_path, dpi=100, bbox_inches='tight')
+            print(f"Chart saved to {output_path}")
+            plt.close()
 
         if save:
             trades.to_csv("./trade_log.csv", index=False)
