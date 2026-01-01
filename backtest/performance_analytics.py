@@ -3,24 +3,24 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class PerformanceAnalytics:
-        """Compute performance statistics and generate plots.
+    """Compute performance statistics and generate plots.
 
-        Inputs
-        ------
-        - Portfolio.value_history: equity series updated by the broker.
-        - trade_log: list of dictionaries (typically Broker.trade_log).
+    Inputs
+    ------
+    - Portfolio.value_history: equity series updated by the broker.
+    - trade_log: list of dictionaries (typically Broker.trade_log).
 
-        Notes
-        -----
-        - If the engine is run in row-by-row multi-asset mode (one step per (Date, Symbol)),
-            then "returns" are computed per event, not per date. For per-date returns,
-            prefer running the engine with group_by_date=True.
-        - Trade pairing logic is a simple FIFO match per symbol and assumes long-only.
-            It does not fully support partial fills/scale-in/scale-out accounting.
-        """
+    Notes
+    -----
+    - If the engine is run in row-by-row multi-asset mode (one step per (Date, Symbol)),
+      then "returns" are computed per event, not per date. For per-date returns,
+      prefer running the engine with group_by_date=True.
+    - Trade pairing logic is a simple FIFO match per symbol and assumes long-only.
+      It does not fully support partial fills/scale-in/scale-out accounting.
+    """
 
     def __init__(self):
-                """Create a PerformanceAnalytics instance."""
+        """Create a PerformanceAnalytics instance."""
         pass
 
     def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None):
