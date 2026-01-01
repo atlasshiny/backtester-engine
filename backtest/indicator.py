@@ -25,14 +25,14 @@ from typing import List
 
 class TechnicalIndicators:
     def __init__(self, data):
-                """Create an indicator helper bound to a dataset.
+        """Create an indicator helper bound to a dataset.
 
-                Parameters
-                ----------
-                data:
-                        Any object convertible to a pandas DataFrame. The class stores and
-                        mutates a DataFrame copy in self.data.
-                """
+        Parameters
+        ----------
+        data:
+            Any object convertible to a pandas DataFrame. The class stores and
+            mutates a DataFrame copy in self.data.
+        """
         self.data = data
         pass
     
