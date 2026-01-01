@@ -197,13 +197,14 @@ class BacktestEngine():
         except NotImplementedError:
             pass
                 
-    def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0):
+    def results(self, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, annualization_factor: float = 252.0):
         """
         Run performance analytics and plotting after the backtest.
         Args:
             plot (bool): Whether to plot results.
             save (bool): Whether to save results to file.
             risk_free_rate (float): Risk-free rate for Sharpe/Sortino.
+            annualization_factor (float): Factor for annualizing Sharpe/Sortino (e.g., 252 for daily, 12 for monthly).
 
         Notes
         -----
@@ -214,4 +215,4 @@ class BacktestEngine():
         """
         analytics = PerformanceAnalytics()
         # Pass broker.trade_log to analytics for trade statistics
-        analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate, trade_log=self.broker.trade_log)
+        analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate, trade_log=self.broker.trade_log, annualization_factor=annualization_factor)

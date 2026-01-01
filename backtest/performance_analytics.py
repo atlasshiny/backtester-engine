@@ -23,7 +23,7 @@ class PerformanceAnalytics:
         """Create a PerformanceAnalytics instance."""
         pass
 
-    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None):
+    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int = 252):
         """
         Analyze portfolio performance, print statistics, and (optionally) plot results.
 
@@ -88,7 +88,7 @@ class PerformanceAnalytics:
         # sharpe ratio (robust to division by zero or nan)
         std_ret = np.std(returns) if len(returns) else float('nan')
         if len(returns) and std_ret > 0 and np.isfinite(std_ret):
-            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(252)
+            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(annualization_factor)
         else:
             sharpe = float('nan')
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
@@ -98,7 +98,7 @@ class PerformanceAnalytics:
         if len(downside_returns) > 0:
             downside_dev = np.std(downside_returns)
             if downside_dev > 0 and np.isfinite(downside_dev):
-                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(252)
+                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(annualization_factor)
             else:
                 sortino = float('nan')
         else:
