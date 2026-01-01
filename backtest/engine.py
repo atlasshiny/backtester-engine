@@ -32,6 +32,7 @@ For multi-asset long format you can choose between:
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from collections import defaultdict
 from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
@@ -109,8 +110,8 @@ class BacktestEngine():
 
         # Multi-asset safe state
         pending_order_by_symbol: dict[str, object] = {}
-        warmup_count_by_symbol: dict[str, int] = {}
-        bar_index_by_symbol: dict[str, int] = {}
+        warmup_count_by_symbol: dict[str, int] = defaultdict(int)
+        bar_index_by_symbol: dict[str, int] = defaultdict(int)
 
         # If strategy requests history, pre-split by symbol to avoid mixing assets in history slices
         data_by_symbol = None
@@ -122,51 +123,58 @@ class BacktestEngine():
         if self.group_by_date and 'Date' in self.data_set.columns:
             grouped = self.data_set.groupby('Date', sort=False)
             for _, date_df in grouped:
+                # Pre-extract Symbol array for faster access
+                symbol_arr = date_df['Symbol'].values if 'Symbol' in date_df.columns else None
+                events_list = list(date_df.itertuples(index=False))
+                
                 # 1) Execute previous bar's decision for each symbol using this bar's prices
-                for event in date_df.itertuples(index=False):
-                    symbol = getattr(event, 'Symbol', 'SINGLE')
+                for idx, event in enumerate(events_list):
+                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
                     if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                         self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
 
                 # 2) Generate new signals for each symbol for this timestamp
-                for event in date_df.itertuples(index=False):
-                    symbol = getattr(event, 'Symbol', 'SINGLE')
+                for idx, event in enumerate(events_list):
+                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
 
                     # Per-symbol warmup (counted in bars, not rows)
-                    warm_i = warmup_count_by_symbol.get(symbol, 0)
-                    if self.warm_up and warm_i < self.warm_up:
-                        warmup_count_by_symbol[symbol] = warm_i + 1
+                    if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
+                        warmup_count_by_symbol[symbol] += 1
                         pending_order_by_symbol[symbol] = None
-                        bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
+                        bar_index_by_symbol[symbol] += 1
                         continue
 
                     if window_size and window_size > 0:
                         if data_by_symbol is not None and symbol in data_by_symbol:
-                            sym_i = bar_index_by_symbol.get(symbol, 0)
+                            sym_i = bar_index_by_symbol[symbol]
                             history = data_by_symbol[symbol].iloc[max(0, sym_i - window_size + 1): sym_i + 1]
                             signal = self.strategy.check_condition(event, history)
                         else:
                             # Fallback: slice from full dataset (single-asset mode only)
                             # Note: this is slower, but only active when a strategy requests history.
                             # Use the same sequential bar index for the synthetic SINGLE symbol.
-                            sym_i = bar_index_by_symbol.get(symbol, 0)
+                            sym_i = bar_index_by_symbol[symbol]
                             history = self.data_set.iloc[max(0, sym_i - window_size + 1): sym_i + 1]
                             signal = self.strategy.check_condition(event, history)
                     else:
                         signal = self.strategy.check_condition(event)
 
                     pending_order_by_symbol[symbol] = signal
-                    bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
+                    bar_index_by_symbol[symbol] += 1
 
         else:
             # Row-by-row processing (fast/simple, but multi-asset has intra-date ordering bias)
+            # Pre-extract numpy arrays for faster attribute access
+            has_symbol = 'Symbol' in self.data_set.columns
+            symbol_arr = self.data_set['Symbol'].values if has_symbol else None
+            
             for idx, event in enumerate(self.data_set.itertuples()):
-                symbol = getattr(event, 'Symbol', 'SINGLE')
+                symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
 
                 if window_size and window_size > 0:
                     # Mode B: Only slice if strategy.history_window is set
                     if data_by_symbol is not None and symbol in data_by_symbol:
-                        sym_i = bar_index_by_symbol.get(symbol, 0)
+                        sym_i = bar_index_by_symbol[symbol]
                         history = data_by_symbol[symbol].iloc[max(0, sym_i - window_size + 1): sym_i + 1]
                         signal = self.strategy.check_condition(event, history)
                     else:
@@ -177,20 +185,18 @@ class BacktestEngine():
                     signal = self.strategy.check_condition(event)
 
                 # Per-symbol warmup for long-format data
-                if self.warm_up:
-                    warm_i = warmup_count_by_symbol.get(symbol, 0)
-                    if warm_i < self.warm_up:
-                        warmup_count_by_symbol[symbol] = warm_i + 1
-                        bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
-                        pending_order_by_symbol[symbol] = None
-                        continue
+                if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
+                    warmup_count_by_symbol[symbol] += 1
+                    bar_index_by_symbol[symbol] += 1
+                    pending_order_by_symbol[symbol] = None
+                    continue
 
                 # execute the previous bar's decision for THIS symbol using the CURRENT bar's prices
                 if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                     self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
 
                 pending_order_by_symbol[symbol] = signal
-                bar_index_by_symbol[symbol] = bar_index_by_symbol.get(symbol, 0) + 1
+                bar_index_by_symbol[symbol] += 1
 
         try:
             self.strategy.on_finish()
