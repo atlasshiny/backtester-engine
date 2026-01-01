@@ -117,26 +117,49 @@ class PerformanceAnalytics:
             total_trades = 0
             total_commission = 0.0
 
-        # Win Rate + trade PnL: FIFO match per symbol (long-only)
+        # Win Rate + trade PnL: Robust FIFO match per symbol
         trade_pairs = []
         if not trades.empty and 'symbol' in trades.columns:
-            open_trades_by_symbol = {}
-            for _, row in trades.iterrows():
-                sym = row.get('symbol')
-                if sym is None:
+            # Convert to list of dicts once for faster iteration
+            trade_list = trades.to_dict('records')
+            open_trades_by_symbol = {} # Stores lists of BUY dicts
+            for trade_dict in trade_list:
+                sym = trade_dict.get('symbol')
+                side = trade_dict.get('side')
+                qty_to_match = trade_dict.get('qty', 0)
+                if sym is None or qty_to_match <= 0 or trade_dict['price'] is None:
                     continue
-                if row['side'] == 'BUY' and row['qty'] > 0 and row['price'] is not None:
-                    open_trades_by_symbol.setdefault(sym, []).append(row)
-                elif row['side'] == 'SELL' and row['qty'] > 0 and row['price'] is not None:
+                if side == 'BUY':
+                    # Add to the queue for this symbol
+                    open_trades_by_symbol.setdefault(sym, []).append(trade_dict.copy())
+                elif side == 'SELL':
                     opens = open_trades_by_symbol.get(sym, [])
-                    if opens:
-                        entry = opens.pop(0)
-                        matched_qty = min(row['qty'], entry['qty'])
-                        gross_pnl = (row['price'] - entry['price']) * matched_qty
-                        entry_comm = float(entry.get('commission', 0.0) or 0.0)
-                        exit_comm = float(row.get('commission', 0.0) or 0.0)
+                    # Loop until the SELL quantity is fully matched or we run out of BUYs
+                    while qty_to_match > 0 and opens:
+                        entry = opens[0]  # Look at the oldest BUY
+                        available_qty = entry['qty']
+                        # Determine how much we can match in this iteration
+                        matched_qty = min(qty_to_match, available_qty)
+                        # Calculate proportional PnL and commissions
+                        share_of_entry = matched_qty / entry['qty']
+                        share_of_exit = matched_qty / trade_dict['qty']
+                        gross_pnl = (trade_dict['price'] - entry['price']) * matched_qty
+                        entry_comm = float(entry.get('commission', 0.0) or 0.0) * share_of_entry
+                        exit_comm = float(trade_dict.get('commission', 0.0) or 0.0) * share_of_exit
                         net_pnl = gross_pnl - entry_comm - exit_comm
-                        trade_pairs.append({'entry': entry, 'exit': row, 'qty': matched_qty, 'gross_pnl': gross_pnl, 'net_pnl': net_pnl})
+                        trade_pairs.append({
+                            'entry': entry,
+                            'exit': trade_dict.copy(),
+                            'qty': matched_qty,
+                            'gross_pnl': gross_pnl,
+                            'net_pnl': net_pnl
+                        })
+                        # Update remaining quantities
+                        qty_to_match -= matched_qty
+                        entry['qty'] -= matched_qty
+                        # If the original BUY is fully used up, remove it from the queue
+                        if entry['qty'] <= 0:
+                            opens.pop(0)
 
         if trade_pairs:
             net_pnls = np.array([tp['net_pnl'] for tp in trade_pairs], dtype=float)
