@@ -220,12 +220,17 @@ class PerformanceAnalytics:
 
         # plots
         if plot:
+            # Deduplicate equity curve: in group_by_date mode with 2 symbols, value_history is updated twice per date
+            # Take every Nth value to get one equity point per date (where N = number of symbols)
+            num_symbols = len(data_set['Symbol'].unique()) if 'Symbol' in data_set.columns else 1
+            equity_deduplicated = equity[::num_symbols] if num_symbols > 1 else equity
+            
             # Create a combined figure with subplots for better performance
             fig = plt.figure(figsize=(16, 12))
             
             # 1) Equity curve
             ax1 = fig.add_subplot(3, 2, 1)
-            ax1.plot(equity, label='Equity Curve', color='tab:blue', rasterized=True)
+            ax1.plot(equity_deduplicated, label='Equity Curve', color='tab:blue', rasterized=True)
             ax1.set_xlabel('Time (events)')
             ax1.set_ylabel('Portfolio Value')
             ax1.set_title('Equity Curve')
@@ -237,7 +242,10 @@ class PerformanceAnalytics:
             # 2) Drawdown (underwater)
             if len(drawdowns):
                 ax2 = fig.add_subplot(3, 2, 2)
-                ax2.plot(drawdowns * -100.0, color='tab:red', rasterized=True)
+                # Use deduplicated equity for drawdown calculation too
+                running_max_dedup = np.maximum.accumulate(equity_deduplicated)
+                drawdowns_dedup = (running_max_dedup - equity_deduplicated) / running_max_dedup
+                ax2.plot(drawdowns_dedup * -100.0, color='tab:red', rasterized=True)
                 ax2.set_xlabel('Time (events)')
                 ax2.set_ylabel('Drawdown (%)')
                 ax2.set_title('Drawdown (Underwater)')
@@ -296,10 +304,17 @@ class PerformanceAnalytics:
             else:
                 close_series = data_set['Close'].values
                 title_suffix = ""
+            
+            # Resample close_series to match equity_deduplicated length
+            if len(close_series) != len(equity_deduplicated):
+                # Use numpy interpolation to match lengths
+                indices_orig = np.linspace(0, len(close_series) - 1, len(close_series))
+                indices_new = np.linspace(0, len(close_series) - 1, len(equity_deduplicated))
+                close_series = np.interp(indices_new, indices_orig, close_series)
 
             ax6 = fig.add_subplot(3, 2, 6)
             ax6_twin = ax6.twinx()
-            ax6.plot(equity, color='tab:blue', label='Equity Curve', rasterized=True)
+            ax6.plot(equity_deduplicated, color='tab:blue', label='Equity Curve', rasterized=True)
             ax6.set_xlabel('Time (events)')
             ax6.set_ylabel('Portfolio Value', color='tab:blue')
             ax6.tick_params(axis='y', labelcolor='tab:blue')
