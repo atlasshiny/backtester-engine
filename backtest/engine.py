@@ -115,9 +115,16 @@ class BacktestEngine():
         bar_index_by_symbol: dict[str, int] = defaultdict(int)
 
         # If strategy requests history, pre-split by symbol to avoid mixing assets in history slices
+        # Convert to NumPy arrays per symbol for fast slicing
         data_by_symbol = None
+        arrays_by_symbol = None
         if window_size and window_size > 0 and 'Symbol' in self.data_set.columns:
             data_by_symbol = {sym: grp.reset_index(drop=True) for sym, grp in self.data_set.groupby('Symbol', sort=False)}
+            # Pre-extract arrays per symbol for fast history slicing
+            arrays_by_symbol = {
+                sym: {col: df[col].values for col in df.columns}
+                for sym, df in data_by_symbol.items()
+            }
 
         # Optionally bundle processing by timestamp to avoid intra-date ordering bias in long-format data.
         # This makes all symbols at the same Date behave as "simultaneous".
@@ -151,9 +158,14 @@ class BacktestEngine():
                         continue
 
                     if window_size and window_size > 0:
-                        if data_by_symbol is not None and symbol in data_by_symbol:
+                        if arrays_by_symbol is not None and symbol in arrays_by_symbol:
+                            # Use pre-extracted NumPy arrays for fast slicing
                             sym_i = bar_index_by_symbol[symbol]
-                            history = data_by_symbol[symbol].iloc[max(0, sym_i - window_size + 1): sym_i + 1]
+                            start_idx = max(0, sym_i - window_size + 1)
+                            end_idx = sym_i + 1
+                            # Slice NumPy arrays and convert to DataFrame for strategy
+                            history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays_by_symbol[symbol].items()}
+                            history = pd.DataFrame(history_arrays)
                             signal = self.strategy.check_condition(event, history)
                         else:
                             # Fallback: slice from full dataset (single-asset mode only)
@@ -171,20 +183,36 @@ class BacktestEngine():
         else:
             # Row-by-row processing (fast/simple, but multi-asset has intra-date ordering bias)
             # Pre-extract numpy arrays for faster attribute access
-            has_symbol = 'Symbol' in self.data_set.columns
-            symbol_arr = self.data_set['Symbol'].values if has_symbol else None
-            
-            for idx, event in enumerate(self.data_set.itertuples()):
+            arrays = {col: self.data_set[col].values for col in self.data_set.columns}
+            n_rows = len(self.data_set)
+            has_symbol = 'Symbol' in arrays
+            symbol_arr = arrays['Symbol'] if has_symbol else None
+            # Build namedtuple type for event (matches itertuples)
+            EventTuple = namedtuple('Event', self.data_set.columns)
+
+            for idx in range(n_rows):
+                # Construct event as namedtuple for compatibility
+                event = EventTuple(*[arrays[col][idx] for col in self.data_set.columns])
                 symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
 
                 if window_size and window_size > 0:
                     # Mode B: Only slice if strategy.history_window is set
-                    if data_by_symbol is not None and symbol in data_by_symbol:
+                    if arrays_by_symbol is not None and symbol in arrays_by_symbol:
+                        # Use pre-extracted NumPy arrays for fast slicing
                         sym_i = bar_index_by_symbol[symbol]
-                        history = data_by_symbol[symbol].iloc[max(0, sym_i - window_size + 1): sym_i + 1]
+                        start_idx = max(0, sym_i - window_size + 1)
+                        end_idx = sym_i + 1
+                        # Slice NumPy arrays and convert to DataFrame for strategy
+                        history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays_by_symbol[symbol].items()}
+                        history = pd.DataFrame(history_arrays)
                         signal = self.strategy.check_condition(event, history)
                     else:
-                        history = self.data_set.iloc[max(0, idx - window_size + 1):idx + 1]
+                        # Fallback: slice from full dataset (single-asset mode)
+                        # Slice pre-extracted arrays directly
+                        start_idx = max(0, idx - window_size + 1)
+                        end_idx = idx + 1
+                        history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays.items()}
+                        history = pd.DataFrame(history_arrays)
                         signal = self.strategy.check_condition(event, history)
                 else:
                     # Mode A: Fast path - skip slicing entirely
