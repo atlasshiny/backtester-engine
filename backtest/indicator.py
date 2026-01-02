@@ -27,13 +27,13 @@ from numba import njit
 
 @njit
 def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
-    """Fast rolling mean using NumPy convolution."""
+    """Fast rolling mean using NumPy."""
     if window <= 0:
         return arr
     result = np.empty(len(arr), dtype=float)
     result[:window-1] = np.nan
-    cumsum = np.cumsum(arr)
-    result[window-1:] = (cumsum[window-1:] - np.concatenate(([0], cumsum[:-window]))) / window
+    for i in range(window-1, len(arr)):
+        result[i] = np.mean(arr[i-window+1:i+1])
     return result
 
 @njit
