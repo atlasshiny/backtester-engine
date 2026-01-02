@@ -37,10 +37,11 @@ from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
-from collections import namedtuple
+from .event_view import EventView, HistoryView
 
-class BacktestEngine():
-    """Coordinates the backtest loop.
+class BacktestEngine:
+    """
+    Coordinates the backtest loop.
 
     Parameters
     ----------
@@ -132,23 +133,25 @@ class BacktestEngine():
             grouped = self.data_set.groupby('Date', sort=False)
             for _, date_df in grouped:
                 # Convert to numpy arrays once for faster access (avoid itertuples overhead)
-                arrays = {col: date_df[col].values for col in date_df.columns}
+                columns = date_df.columns
+                arrays = {col: date_df[col].to_numpy(copy=False) for col in columns}
+                # Provide a stable Index-like field for timestamp fallbacks/logging.
+                arrays['Index'] = date_df.index.to_numpy(copy=False)
                 n_rows = len(date_df)
-                
-                # Create event namedtuple once
-                EventTuple = namedtuple('Event', date_df.columns)
+
+                symbol_arr = arrays.get('Symbol', None)
                 
                 # 1) Execute previous bar's decision for each symbol using this bar's prices
                 for idx in range(n_rows):
-                    event = EventTuple(*[arrays[col][idx] for col in date_df.columns])
-                    symbol = arrays.get('Symbol', np.array(['SINGLE'] * n_rows))[idx]
+                    event = EventView(arrays, idx, columns)
+                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
                     if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                         self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
 
                 # 2) Generate new signals for each symbol for this timestamp
                 for idx in range(n_rows):
-                    event = EventTuple(*[arrays[col][idx] for col in date_df.columns])
-                    symbol = arrays.get('Symbol', np.array(['SINGLE'] * n_rows))[idx]
+                    event = EventView(arrays, idx, columns)
+                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
 
                     # Per-symbol warmup (counted in bars, not rows)
                     if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
@@ -163,16 +166,16 @@ class BacktestEngine():
                             sym_i = bar_index_by_symbol[symbol]
                             start_idx = max(0, sym_i - window_size + 1)
                             end_idx = sym_i + 1
-                            # Slice NumPy arrays and convert to DataFrame for strategy
-                            history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays_by_symbol[symbol].items()}
-                            history = pd.DataFrame(history_arrays)
+                            history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
                             signal = self.strategy.check_condition(event, history)
                         else:
                             # Fallback: slice from full dataset (single-asset mode only)
                             # Note: this is slower, but only active when a strategy requests history.
                             # Use the same sequential bar index for the synthetic SINGLE symbol.
                             sym_i = bar_index_by_symbol[symbol]
-                            history = self.data_set.iloc[max(0, sym_i - window_size + 1): sym_i + 1]
+                            start_idx = max(0, sym_i - window_size + 1)
+                            end_idx = sym_i + 1
+                            history = HistoryView(arrays, start_idx, end_idx, columns)
                             signal = self.strategy.check_condition(event, history)
                     else:
                         signal = self.strategy.check_condition(event)
@@ -183,16 +186,15 @@ class BacktestEngine():
         else:
             # Row-by-row processing (fast/simple, but multi-asset has intra-date ordering bias)
             # Pre-extract numpy arrays for faster attribute access
-            arrays = {col: self.data_set[col].values for col in self.data_set.columns}
+            columns = self.data_set.columns
+            arrays = {col: self.data_set[col].to_numpy(copy=False) for col in columns}
+            # Provide a stable Index-like field for timestamp fallbacks/logging.
+            arrays['Index'] = self.data_set.index.to_numpy(copy=False)
             n_rows = len(self.data_set)
-            has_symbol = 'Symbol' in arrays
-            symbol_arr = arrays['Symbol'] if has_symbol else None
-            # Build namedtuple type for event (matches itertuples)
-            EventTuple = namedtuple('Event', self.data_set.columns)
+            symbol_arr = arrays.get('Symbol', None)
 
             for idx in range(n_rows):
-                # Construct event as namedtuple for compatibility
-                event = EventTuple(*[arrays[col][idx] for col in self.data_set.columns])
+                event = EventView(arrays, idx, columns)
                 symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
 
                 if window_size and window_size > 0:
@@ -202,17 +204,13 @@ class BacktestEngine():
                         sym_i = bar_index_by_symbol[symbol]
                         start_idx = max(0, sym_i - window_size + 1)
                         end_idx = sym_i + 1
-                        # Slice NumPy arrays and convert to DataFrame for strategy
-                        history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays_by_symbol[symbol].items()}
-                        history = pd.DataFrame(history_arrays)
+                        history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
                         signal = self.strategy.check_condition(event, history)
                     else:
                         # Fallback: slice from full dataset (single-asset mode)
-                        # Slice pre-extracted arrays directly
                         start_idx = max(0, idx - window_size + 1)
                         end_idx = idx + 1
-                        history_arrays = {col: arr[start_idx:end_idx] for col, arr in arrays.items()}
-                        history = pd.DataFrame(history_arrays)
+                        history = HistoryView(arrays, start_idx, end_idx, columns)
                         signal = self.strategy.check_condition(event, history)
                 else:
                     # Mode A: Fast path - skip slicing entirely
