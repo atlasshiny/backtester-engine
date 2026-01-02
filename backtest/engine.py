@@ -131,23 +131,16 @@ class BacktestEngine:
         # This makes all symbols at the same Date behave as "simultaneous".
         if self.group_by_date and 'Date' in self.data_set.columns:
             grouped = self.data_set.groupby('Date', sort=False)
-            # Precompute arrays for each date to avoid repeated DataFrame slicing
-            arrays_by_date = {
-                date: {col: df[col].to_numpy(copy=False) for col in df.columns}
-                for date, df in grouped
-            }
-            # Also store columns and index for each date
-            columns_by_date = {date: df.columns for date, df in grouped}
-            index_by_date = {date: df.index.to_numpy(copy=False) for date, df in grouped}
-
-            for date, date_df in grouped:
-                columns = columns_by_date[date]
-                arrays = arrays_by_date[date]
-                arrays['Index'] = index_by_date[date]
+            for _, date_df in grouped:
+                # Convert to numpy arrays once for faster access (avoid itertuples overhead)
+                columns = date_df.columns
+                arrays = {col: date_df[col].to_numpy(copy=False) for col in columns}
+                # Provide a stable Index-like field for timestamp fallbacks/logging.
+                arrays['Index'] = date_df.index.to_numpy(copy=False)
                 n_rows = len(date_df)
 
                 symbol_arr = arrays.get('Symbol', None)
-
+                
                 # 1) Execute previous bar's decision for each symbol using this bar's prices
                 for idx in range(n_rows):
                     event = EventView(arrays, idx, columns)
