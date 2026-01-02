@@ -4,6 +4,30 @@ matplotlib.use('Agg')  # Use non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from numba import njit
+
+@njit
+def _calculate_consecutive_streaks(is_win: np.ndarray, is_loss: np.ndarray) -> tuple:
+    """Calculate maximum consecutive wins and losses using Numba."""
+    max_consec_wins = 0
+    max_consec_losses = 0
+    current_wins = 0
+    current_losses = 0
+    for win, loss in zip(is_win, is_loss):
+        if win:
+            current_wins += 1
+            current_losses = 0
+            if current_wins > max_consec_wins:
+                max_consec_wins = current_wins
+        elif loss:
+            current_losses += 1
+            current_wins = 0
+            if current_losses > max_consec_losses:
+                max_consec_losses = current_losses
+        else:
+            current_wins = 0
+            current_losses = 0
+    return max_consec_wins, max_consec_losses
 
 class PerformanceAnalytics:
     """Compute performance statistics and generate plots.
@@ -184,27 +208,10 @@ class PerformanceAnalytics:
             profit_factor = (gross_profit / abs(gross_loss)) if gross_loss < 0 else float('nan')
             expectancy = float(np.mean(net_pnls)) if len(net_pnls) else float('nan')
 
-            # streaks - optimized with NumPy
+            # streaks - optimized with Numba
             is_win = net_pnls > 0
             is_loss = net_pnls < 0
-            
-            # Calculate consecutive streaks using NumPy
-            max_consec_wins = 0
-            max_consec_losses = 0
-            current_wins = 0
-            current_losses = 0
-            for win, loss in zip(is_win, is_loss):
-                if win:
-                    current_wins += 1
-                    current_losses = 0
-                    max_consec_wins = max(max_consec_wins, current_wins)
-                elif loss:
-                    current_losses += 1
-                    current_wins = 0
-                    max_consec_losses = max(max_consec_losses, current_losses)
-                else:
-                    current_wins = 0
-                    current_losses = 0
+            max_consec_wins, max_consec_losses = _calculate_consecutive_streaks(is_win, is_loss)
 
             print(f"Total Trades: {len(net_pnls)}")
             print(f"Win Rate: {win_rate:.2f}%")
