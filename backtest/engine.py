@@ -37,7 +37,23 @@ from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
-from .event_view import EventView, HistoryView
+from .event_view import HistoryView
+
+
+class BarView:
+    """Lightweight view over a single bar using pre-extracted NumPy arrays."""
+    __slots__ = ("Open", "High", "Low", "Close", "Date", "Symbol", "Index", "SMA_fast", "SMA_slow")
+
+    def __init__(self, open_, high, low, close, date, symbol, index, sma_fast=None, sma_slow=None):
+        self.Open = open_
+        self.High = high
+        self.Low = low
+        self.Close = close
+        self.Date = date
+        self.Symbol = symbol
+        self.Index = index
+        self.SMA_fast = sma_fast
+        self.SMA_slow = sma_slow
 
 class BacktestEngine:
     """
@@ -139,16 +155,35 @@ class BacktestEngine:
                 arrays['Index'] = date_df.index.to_numpy(copy=False)
                 n_rows = len(date_df)
 
+                # Pre-extract frequently accessed arrays for ultra-fast inner loop
                 symbol_arr = arrays.get('Symbol', None)
+                sma_fast_arr = arrays.get('SMA_fast', None)
+                sma_slow_arr = arrays.get('SMA_slow', None)
+                open_arr = arrays.get('Open', None)
+                high_arr = arrays.get('High', None)
+                low_arr = arrays.get('Low', None)
+                close_arr = arrays.get('Close', None)
+                date_arr = arrays.get('Date', None)
+                index_arr = arrays.get('Index', None)
 
                 # Combined loop: execute previous order and generate new signal in one pass
                 for idx in range(n_rows):
-                    event = EventView(arrays, idx, columns)
                     symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                    bar = BarView(
+                        open_=open_arr[idx] if open_arr is not None else None,
+                        high=high_arr[idx] if high_arr is not None else None,
+                        low=low_arr[idx] if low_arr is not None else None,
+                        close=close_arr[idx] if close_arr is not None else None,
+                        date=date_arr[idx] if date_arr is not None else None,
+                        symbol=symbol,
+                        index=index_arr[idx] if index_arr is not None else None,
+                        sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
+                        sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
+                    )
 
                     # 1) Execute previous bar's decision for each symbol using this bar's prices
                     if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
-                        self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
+                        self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
 
                     # 2) Generate new signals for each symbol for this timestamp
                     # Per-symbol warmup (counted in bars, not rows)
@@ -165,7 +200,7 @@ class BacktestEngine:
                             start_idx = max(0, sym_i - window_size + 1)
                             end_idx = sym_i + 1
                             history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
-                            signal = self.strategy.check_condition(event, history)
+                            signal = self.strategy.check_condition(bar, history)
                         else:
                             # Fallback: slice from full dataset (single-asset mode only)
                             # Note: this is slower, but only active when a strategy requests history.
@@ -174,9 +209,10 @@ class BacktestEngine:
                             start_idx = max(0, sym_i - window_size + 1)
                             end_idx = sym_i + 1
                             history = HistoryView(arrays, start_idx, end_idx, columns)
-                            signal = self.strategy.check_condition(event, history)
+                            signal = self.strategy.check_condition(bar, history)
                     else:
-                        signal = self.strategy.check_condition(event)
+                        # Fast path: strategy reads indicators from bar attributes
+                        signal = self.strategy.check_condition(bar)
 
                     pending_order_by_symbol[symbol] = signal
                     bar_index_by_symbol[symbol] += 1
@@ -190,10 +226,28 @@ class BacktestEngine:
             arrays['Index'] = self.data_set.index.to_numpy(copy=False)
             n_rows = len(self.data_set)
             symbol_arr = arrays.get('Symbol', None)
+            sma_fast_arr = arrays.get('SMA_fast', None)
+            sma_slow_arr = arrays.get('SMA_slow', None)
+            open_arr = arrays.get('Open', None)
+            high_arr = arrays.get('High', None)
+            low_arr = arrays.get('Low', None)
+            close_arr = arrays.get('Close', None)
+            date_arr = arrays.get('Date', None)
+            index_arr = arrays.get('Index', None)
 
             for idx in range(n_rows):
-                event = EventView(arrays, idx, columns)
                 symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                bar = BarView(
+                    open_=open_arr[idx] if open_arr is not None else None,
+                    high=high_arr[idx] if high_arr is not None else None,
+                    low=low_arr[idx] if low_arr is not None else None,
+                    close=close_arr[idx] if close_arr is not None else None,
+                    date=date_arr[idx] if date_arr is not None else None,
+                    symbol=symbol,
+                    index=index_arr[idx] if index_arr is not None else None,
+                    sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
+                    sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
+                )
 
                 if window_size and window_size > 0:
                     # Mode B: Only slice if strategy.history_window is set
@@ -203,16 +257,16 @@ class BacktestEngine:
                         start_idx = max(0, sym_i - window_size + 1)
                         end_idx = sym_i + 1
                         history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
-                        signal = self.strategy.check_condition(event, history)
+                        signal = self.strategy.check_condition(bar, history)
                     else:
                         # Fallback: slice from full dataset (single-asset mode)
                         start_idx = max(0, idx - window_size + 1)
                         end_idx = idx + 1
                         history = HistoryView(arrays, start_idx, end_idx, columns)
-                        signal = self.strategy.check_condition(event, history)
+                        signal = self.strategy.check_condition(bar, history)
                 else:
                     # Mode A: Fast path - skip slicing entirely
-                    signal = self.strategy.check_condition(event)
+                    signal = self.strategy.check_condition(bar)
 
                 # Per-symbol warmup for long-format data
                 if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
@@ -223,7 +277,7 @@ class BacktestEngine:
 
                 # execute the previous bar's decision for THIS symbol using the CURRENT bar's prices
                 if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
-                    self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
+                    self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
 
                 pending_order_by_symbol[symbol] = signal
                 bar_index_by_symbol[symbol] += 1
