@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 
 class PerformanceAnalytics:
     """Compute performance statistics and generate plots.
@@ -231,15 +232,14 @@ class PerformanceAnalytics:
         # plots
         if plot:
             # Deduplicate equity curve: in group_by_date mode with 2 symbols, value_history is updated twice per date
-            # Take every Nth value to get one equity point per date (where N = number of symbols)
             num_symbols = len(data_set['Symbol'].unique()) if 'Symbol' in data_set.columns else 1
             equity_deduplicated = equity[::num_symbols] if num_symbols > 1 else equity
-            
-            # Create a combined figure with subplots for better performance
-            fig = plt.figure(figsize=(16, 12))
-            
+
+            fig, axes = plt.subplots(4, 2, figsize=(20, 16))
+            axes = axes.flatten()
+
             # 1) Equity curve
-            ax1 = fig.add_subplot(3, 2, 1)
+            ax1 = axes[0]
             ax1.plot(equity_deduplicated, label='Equity Curve', color='tab:blue', rasterized=True)
             ax1.set_xlabel('Time (events)')
             ax1.set_ylabel('Portfolio Value')
@@ -249,23 +249,23 @@ class PerformanceAnalytics:
             ax1.spines['top'].set_visible(False)
             ax1.spines['right'].set_visible(False)
 
-            # 2) Drawdown (underwater)
-            if len(drawdowns):
-                ax2 = fig.add_subplot(3, 2, 2)
-                # Use deduplicated equity for drawdown calculation too
+            # 2) Underwater plot (shaded drawdown)
+            if len(equity_deduplicated):
                 running_max_dedup = np.maximum.accumulate(equity_deduplicated)
                 drawdowns_dedup = (running_max_dedup - equity_deduplicated) / running_max_dedup
+                ax2 = axes[1]
+                ax2.fill_between(np.arange(len(drawdowns_dedup)), drawdowns_dedup * -100.0, color='tab:red', alpha=0.5)
                 ax2.plot(drawdowns_dedup * -100.0, color='tab:red', rasterized=True)
                 ax2.set_xlabel('Time (events)')
                 ax2.set_ylabel('Drawdown (%)')
-                ax2.set_title('Drawdown (Underwater)')
+                ax2.set_title('Underwater Plot (Drawdown)')
                 ax2.grid(False)
                 ax2.spines['top'].set_visible(False)
                 ax2.spines['right'].set_visible(False)
 
             # 3) Returns distribution
             if len(returns):
-                ax3 = fig.add_subplot(3, 2, 3)
+                ax3 = axes[2]
                 ax3.hist(returns, bins=50, color='tab:purple', alpha=0.8)
                 ax3.set_xlabel('Per-step returns')
                 ax3.set_ylabel('Frequency')
@@ -274,39 +274,65 @@ class PerformanceAnalytics:
                 ax3.spines['top'].set_visible(False)
                 ax3.spines['right'].set_visible(False)
 
-            # 4) Trade PnL distribution
+            # 4) Monthly returns heatmap
+            if len(equity_deduplicated) > 1:
+                # Create a DataFrame for value history with date index
+                if 'Date' in data_set.columns:
+                    # Deduplicate dates to match equity_deduplicated
+                    dates = data_set['Date'].values[::num_symbols] if num_symbols > 1 else data_set['Date'].values
+                    dates = pd.to_datetime(dates)
+                    # Align lengths
+                    min_len = min(len(dates), len(equity_deduplicated))
+                    dates = dates[:min_len]
+                    equity_dedup_aligned = equity_deduplicated[:min_len]
+                    eq_df = pd.DataFrame({'Equity': equity_dedup_aligned}, index=dates)
+                    # Use 'ME' for month-end frequency
+                    monthly_returns = eq_df['Equity'].resample('ME').last().pct_change()
+                    # Create a DataFrame for heatmap: rows=years, columns=months
+                    heatmap_df = monthly_returns.copy()
+                    # The index is a PeriodIndex (monthly)
+                    years = heatmap_df.index.year
+                    months = heatmap_df.index.month
+                    pivot_df = pd.DataFrame({'Year': years, 'Month': months, 'Return': heatmap_df.values})
+                    pivot_table = pivot_df.pivot(index='Year', columns='Month', values='Return')
+                    ax4 = axes[3]
+                    sns.heatmap(pivot_table, annot=True, fmt='.2%', cmap='RdYlGn', ax=ax4, cbar=True)
+                    ax4.set_title('Monthly Returns Heatmap')
+                    ax4.set_xlabel('Month')
+                    ax4.set_ylabel('Year')
+
+            # 5) Trade PnL distribution
             if trade_pairs:
                 net_pnls = np.array([tp['net_pnl'] for tp in trade_pairs], dtype=float)
-                ax4 = fig.add_subplot(3, 2, 4)
-                ax4.hist(net_pnls, bins=40, color='tab:green', alpha=0.8)
-                ax4.set_xlabel('Trade PnL (net)')
-                ax4.set_ylabel('Frequency')
-                ax4.set_title('Trade PnL Distribution (Net)')
-                ax4.grid(False)
-                ax4.spines['top'].set_visible(False)
-                ax4.spines['right'].set_visible(False)
+                ax5 = axes[4]
+                ax5.hist(net_pnls, bins=40, color='tab:green', alpha=0.8)
+                ax5.set_xlabel('Trade PnL (net)')
+                ax5.set_ylabel('Frequency')
+                ax5.set_title('Trade PnL Distribution (Net)')
+                ax5.grid(False)
+                ax5.spines['top'].set_visible(False)
+                ax5.spines['right'].set_visible(False)
 
-                # 5) Per-symbol PnL - optimized aggregation
+                # 6) Per-symbol PnL - optimized aggregation
                 sym_pnl = {}
                 for tp in trade_pairs:
                     sym = tp['entry'].get('symbol')
                     if sym is not None:
                         sym_pnl[sym] = sym_pnl.get(sym, 0.0) + float(tp['net_pnl'])
-                
                 if sym_pnl:
-                    ax5 = fig.add_subplot(3, 2, 5)
+                    ax6 = axes[5]
                     symbols = list(sym_pnl.keys())
                     pnls = np.array([sym_pnl[s] for s in symbols], dtype=float)
-                    ax5.bar(range(len(symbols)), pnls, color='tab:blue', alpha=0.8)
-                    ax5.set_xticks(range(len(symbols)))
-                    ax5.set_xticklabels(symbols, rotation=45, ha='right')
-                    ax5.set_ylabel('PnL (net)')
-                    ax5.set_title('PnL by Symbol (Net)')
-                    ax5.grid(False)
-                    ax5.spines['top'].set_visible(False)
-                    ax5.spines['right'].set_visible(False)
+                    ax6.bar(range(len(symbols)), pnls, color='tab:blue', alpha=0.8)
+                    ax6.set_xticks(range(len(symbols)))
+                    ax6.set_xticklabels(symbols, rotation=45, ha='right')
+                    ax6.set_ylabel('PnL (net)')
+                    ax6.set_title('PnL by Symbol (Net)')
+                    ax6.grid(False)
+                    ax6.spines['top'].set_visible(False)
+                    ax6.spines['right'].set_visible(False)
 
-            # 6) Price vs Equity (dual axis)
+            # 7) Price vs Equity (dual axis)
             if 'Symbol' in data_set.columns:
                 first_symbol = data_set['Symbol'].iloc[0]
                 close_series = data_set[data_set['Symbol'] == first_symbol]['Close'].values
@@ -314,30 +340,42 @@ class PerformanceAnalytics:
             else:
                 close_series = data_set['Close'].values
                 title_suffix = ""
-            
             # Resample close_series to match equity_deduplicated length
             if len(close_series) != len(equity_deduplicated):
-                # Use numpy interpolation to match lengths
                 indices_orig = np.linspace(0, len(close_series) - 1, len(close_series))
                 indices_new = np.linspace(0, len(close_series) - 1, len(equity_deduplicated))
                 close_series = np.interp(indices_new, indices_orig, close_series)
+            ax7 = axes[6]
+            ax7_twin = ax7.twinx()
+            ax7.plot(equity_deduplicated, color='tab:blue', label='Equity Curve', rasterized=True)
+            ax7.set_xlabel('Time (events)')
+            ax7.set_ylabel('Portfolio Value', color='tab:blue')
+            ax7.tick_params(axis='y', labelcolor='tab:blue')
+            ax7_twin.plot(close_series, color='tab:orange', label='Price (Close)', rasterized=True)
+            ax7_twin.set_ylabel('Price', color='tab:orange')
+            ax7_twin.tick_params(axis='y', labelcolor='tab:orange')
+            ax7.set_title('Equity and Price Curve' + title_suffix)
+            ax7.grid(False)
+            ax7.spines['top'].set_visible(False)
+            ax7.spines['right'].set_visible(False)
 
-            ax6 = fig.add_subplot(3, 2, 6)
-            ax6_twin = ax6.twinx()
-            ax6.plot(equity_deduplicated, color='tab:blue', label='Equity Curve', rasterized=True)
-            ax6.set_xlabel('Time (events)')
-            ax6.set_ylabel('Portfolio Value', color='tab:blue')
-            ax6.tick_params(axis='y', labelcolor='tab:blue')
-            ax6_twin.plot(close_series, color='tab:orange', label='Price (Close)', rasterized=True)
-            ax6_twin.set_ylabel('Price', color='tab:orange')
-            ax6_twin.tick_params(axis='y', labelcolor='tab:orange')
-            ax6.set_title('Equity and Price Curve' + title_suffix)
-            ax6.grid(False)
-            ax6.spines['top'].set_visible(False)
-            ax6.spines['right'].set_visible(False)
-            
+            # 8) Rolling Sharpe Ratio
+            if len(returns) > 20:
+                window = min(60, len(returns))
+                rolling_mean = pd.Series(returns).rolling(window=window).mean()
+                rolling_std = pd.Series(returns).rolling(window=window).std()
+                rolling_sharpe = (rolling_mean - risk_free_rate) / (rolling_std + 1e-8) * np.sqrt(annualization_factor)
+                ax8 = axes[7]
+                ax8.plot(rolling_sharpe, color='tab:cyan', label=f'Rolling Sharpe ({window})')
+                ax8.set_xlabel('Time (events)')
+                ax8.set_ylabel('Sharpe Ratio')
+                ax8.set_title('Rolling Sharpe Ratio')
+                ax8.legend()
+                ax8.grid(False)
+                ax8.spines['top'].set_visible(False)
+                ax8.spines['right'].set_visible(False)
+
             plt.tight_layout()
-            # Save figure to disk instead of showing
             output_path = './backtest_results.png'
             plt.savefig(output_path, dpi=100, bbox_inches='tight')
             print(f"Chart saved to {output_path}")
