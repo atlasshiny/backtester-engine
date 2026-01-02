@@ -21,9 +21,11 @@ within each symbol (typically by Date).
 import pandas as pd
 import numpy as np
 from typing import List
+from numba import njit
 
 # add a list of methods that calculate certain indicators and have parameters in the add_indicator method to attach them to the main dataset
 
+@njit
 def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     """Fast rolling mean using NumPy convolution."""
     if window <= 0:
@@ -34,6 +36,7 @@ def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     result[window-1:] = (cumsum[window-1:] - np.concatenate(([0], cumsum[:-window]))) / window
     return result
 
+@njit
 def _rolling_std_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     """Fast rolling standard deviation using NumPy."""
     if window <= 0:
@@ -112,8 +115,8 @@ class TechnicalIndicators:
         df = self.data
         col = column if column else df.columns[-1]
         alpha = 2.0 / (window + 1.0)
-        
-        def _ema_numpy(arr: np.ndarray) -> np.ndarray:
+        @njit
+        def _ema_numpy(arr: np.ndarray, alpha: float) -> np.ndarray:
             """Fast EMA using NumPy."""
             result = np.empty(len(arr), dtype=float)
             result[0] = arr[0]
@@ -128,7 +131,7 @@ class TechnicalIndicators:
             for sym in np.unique(symbols):
                 mask = symbols == sym
                 indices = np.where(mask)[0]
-                ema[indices] = _ema_numpy(prices[mask])
+                ema[indices] = _ema_numpy(prices[mask], alpha)
             df['EMA'] = ema
         else:
             df['EMA'] = _ema_numpy(df[col].values)
@@ -150,7 +153,8 @@ class TechnicalIndicators:
         df = self.data
         col = column if column else df.columns[-1]
         
-        def _rsi_numpy(arr: np.ndarray) -> np.ndarray:
+        @njit
+        def _rsi_numpy(arr: np.ndarray, window: int) -> np.ndarray:
             """Fast RSI using NumPy."""
             delta = np.diff(arr, prepend=arr[0])
             gain = np.where(delta > 0, delta, 0.0)
@@ -167,10 +171,10 @@ class TechnicalIndicators:
             for sym in np.unique(symbols):
                 mask = symbols == sym
                 indices = np.where(mask)[0]
-                rsi[indices] = _rsi_numpy(prices[mask])
+                rsi[indices] = _rsi_numpy(prices[mask], window)
             df['RSI'] = rsi
         else:
-            df['RSI'] = _rsi_numpy(df[col].values)
+            df['RSI'] = _rsi_numpy(df[col].values, window)
         self.data = df
 
     def bollinger_bands(self, window: int = 20, num_std: float = 2.0, column: str | None = "Close"):
