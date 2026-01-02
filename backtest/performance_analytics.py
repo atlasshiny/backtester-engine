@@ -26,7 +26,7 @@ class PerformanceAnalytics:
         """Create a PerformanceAnalytics instance."""
         pass
 
-    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int = 252):
+    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int = 252, max_points: int = 1000):
         """
         Analyze portfolio performance, print statistics, and (optionally) plot results.
 
@@ -47,6 +47,10 @@ class PerformanceAnalytics:
             List[dict] with Broker log schema. Expected keys include:
             timestamp, symbol, side, qty, price, commission, slippage, order_type,
             limit_price, comment.
+        annualization_factor:
+            Integer factor for annualizing Sharpe/Sortino ratios (default: 252).
+        max_points:
+            Maximum number of points to plot in charts (downsampling for performance).
 
         Output
         ------
@@ -238,9 +242,18 @@ class PerformanceAnalytics:
             fig, axes = plt.subplots(4, 2, figsize=(20, 16))
             axes = axes.flatten()
 
+            # Downsampling helper
+            def downsample(arr):
+                arr = np.asarray(arr)
+                if len(arr) > max_points:
+                    idx = np.linspace(0, len(arr) - 1, max_points, dtype=int)
+                    return arr[idx]
+                return arr
+
             # 1) Equity curve
             ax1 = axes[0]
-            ax1.plot(equity_deduplicated, label='Equity Curve', color='tab:blue', rasterized=True)
+            eq_plot = downsample(equity_deduplicated)
+            ax1.plot(eq_plot, label='Equity Curve', color='tab:blue', rasterized=True)
             ax1.set_xlabel('Time (events)')
             ax1.set_ylabel('Portfolio Value')
             ax1.set_title('Equity Curve')
@@ -251,8 +264,9 @@ class PerformanceAnalytics:
 
             # 2) Underwater plot (shaded drawdown)
             if len(equity_deduplicated):
-                running_max_dedup = np.maximum.accumulate(equity_deduplicated)
-                drawdowns_dedup = (running_max_dedup - equity_deduplicated) / running_max_dedup
+                eq_dd = downsample(equity_deduplicated)
+                running_max_dedup = np.maximum.accumulate(eq_dd)
+                drawdowns_dedup = (running_max_dedup - eq_dd) / running_max_dedup
                 ax2 = axes[1]
                 ax2.fill_between(np.arange(len(drawdowns_dedup)), drawdowns_dedup * -100.0, color='tab:red', alpha=0.5)
                 ax2.plot(drawdowns_dedup * -100.0, color='tab:red', rasterized=True)
@@ -266,7 +280,8 @@ class PerformanceAnalytics:
             # 3) Returns distribution
             if len(returns):
                 ax3 = axes[2]
-                ax3.hist(returns, bins=50, color='tab:purple', alpha=0.8)
+                ret_plot = downsample(returns)
+                ax3.hist(ret_plot, bins=50, color='tab:purple', alpha=0.8)
                 ax3.set_xlabel('Per-step returns')
                 ax3.set_ylabel('Frequency')
                 ax3.set_title('Returns Distribution')
@@ -283,20 +298,12 @@ class PerformanceAnalytics:
                     dates = pd.to_datetime(dates)
                     # Align lengths
                     min_len = min(len(dates), len(equity_deduplicated))
-                    dates = dates[:min_len]
-                    equity_dedup_aligned = equity_deduplicated[:min_len]
-                    eq_df = pd.DataFrame({'Equity': equity_dedup_aligned}, index=dates)
-                    # Use 'ME' for month-end frequency
+                    eq_df = pd.DataFrame({'Equity': equity_deduplicated[:min_len]}, index=dates[:min_len])
                     monthly_returns = eq_df['Equity'].resample('ME').last().pct_change()
-                    # Create a DataFrame for heatmap: rows=years, columns=months
-                    heatmap_df = monthly_returns.copy()
-                    # The index is a PeriodIndex (monthly)
-                    years = heatmap_df.index.year
-                    months = heatmap_df.index.month
-                    pivot_df = pd.DataFrame({'Year': years, 'Month': months, 'Return': heatmap_df.values})
-                    pivot_table = pivot_df.pivot(index='Year', columns='Month', values='Return')
+                    # Directly build pivot table for heatmap
+                    pivot_table = monthly_returns.groupby([monthly_returns.index.year, monthly_returns.index.month]).first().unstack(fill_value=np.nan)
                     ax4 = axes[3]
-                    sns.heatmap(pivot_table, annot=True, fmt='.2%', cmap='RdYlGn', ax=ax4, cbar=True)
+                    sns.heatmap(pivot_table, annot=False, cmap='RdYlGn', ax=ax4, cbar=True)
                     ax4.set_title('Monthly Returns Heatmap')
                     ax4.set_xlabel('Month')
                     ax4.set_ylabel('Year')
@@ -345,13 +352,15 @@ class PerformanceAnalytics:
                 indices_orig = np.linspace(0, len(close_series) - 1, len(close_series))
                 indices_new = np.linspace(0, len(close_series) - 1, len(equity_deduplicated))
                 close_series = np.interp(indices_new, indices_orig, close_series)
+            eq7_plot = downsample(equity_deduplicated)
+            close_plot = downsample(close_series)
             ax7 = axes[6]
             ax7_twin = ax7.twinx()
-            ax7.plot(equity_deduplicated, color='tab:blue', label='Equity Curve', rasterized=True)
+            ax7.plot(eq7_plot, color='tab:blue', label='Equity Curve', rasterized=True)
             ax7.set_xlabel('Time (events)')
             ax7.set_ylabel('Portfolio Value', color='tab:blue')
             ax7.tick_params(axis='y', labelcolor='tab:blue')
-            ax7_twin.plot(close_series, color='tab:orange', label='Price (Close)', rasterized=True)
+            ax7_twin.plot(close_plot, color='tab:orange', label='Price (Close)', rasterized=True)
             ax7_twin.set_ylabel('Price', color='tab:orange')
             ax7_twin.tick_params(axis='y', labelcolor='tab:orange')
             ax7.set_title('Equity and Price Curve' + title_suffix)
@@ -366,7 +375,8 @@ class PerformanceAnalytics:
                 rolling_std = pd.Series(returns).rolling(window=window).std()
                 rolling_sharpe = (rolling_mean - risk_free_rate) / (rolling_std + 1e-8) * np.sqrt(annualization_factor)
                 ax8 = axes[7]
-                ax8.plot(rolling_sharpe, color='tab:cyan', label=f'Rolling Sharpe ({window})')
+                sharpe_plot = downsample(rolling_sharpe.dropna())
+                ax8.plot(sharpe_plot, color='tab:cyan', label=f'Rolling Sharpe ({window})')
                 ax8.set_xlabel('Time (events)')
                 ax8.set_ylabel('Sharpe Ratio')
                 ax8.set_title('Rolling Sharpe Ratio')
