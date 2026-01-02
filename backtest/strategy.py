@@ -8,18 +8,18 @@ model) and the broker decides how orders are filled.
 
 Event format
 ------------
-The engine passes rows created by pandas DataFrame.itertuples(). In long-format
-multi-asset data, events usually contain Date, Symbol, and OHLCV (plus any
-precomputed indicator columns).
+The engine passes an event-like object with attribute access (e.g. event.Close).
+In long-format multi-asset data, events usually contain Date, Symbol, and OHLCV
+(plus any precomputed indicator columns).
 
 History slicing
 --------------
-If a strategy sets history_window > 0, the engine will pass a history DataFrame
-as the second argument to check_condition(). Otherwise, it will omit history for
-performance.
+If a strategy sets history_window > 0, the engine will pass a lightweight
+history window object as the second argument to check_condition(). The history
+object supports fast NumPy-style column access and a minimal .iloc interface.
+Otherwise, the engine omits history for performance.
 """
 
-import pandas as pd
 from .order import Order
 from typing import Literal, Union, Tuple
 
@@ -78,18 +78,16 @@ class Strategy():
         """
         raise NotImplementedError("on_finish must be implemented by subclass.")
 
-    # old expected return value
-    # Union[Tuple[Literal["BUY"], int], Tuple[Literal["SELL"], int], Tuple[Literal["HOLD"], int]]
-    def check_condition(self, event: tuple, history: pd.DataFrame | None = None) -> Order:
+    def check_condition(self, event, history=None) -> Order:
         """
         Produce an Order given the current event and optional history.
 
         Parameters
         ----------
         event:
-            The current bar/event (namedtuple from DataFrame.itertuples()).
+            The current bar/event (event-like object with attribute access).
         history:
-            Optional historical slice, only provided when history_window > 0.
+            Optional historical window, only provided when history_window > 0.
 
         Returns
         -------
