@@ -21,15 +21,15 @@ class TestPerformanceAnalytics(unittest.TestCase):
 
     def test_basic_statistics(self):
         analytics = PerformanceAnalytics()
-        stats = analytics.calculate_statistics(self.portfolio, self.data_set, trade_log=self.trade_log)
-        # Check total PnL
-        self.assertAlmostEqual(stats['TotalPnL'], 150 + 50, delta=1e-6)  # (150-100) + (250-200)
+        stats = analytics.analyze_and_plot(self.portfolio, self.data_set, plot=False, save=False, trade_log=self.trade_log)
+        # Check total PnL (portfolio PnL: final value - initial cash)
+        self.assertAlmostEqual(stats['TotalPnL'], 150, delta=1e-6)  # 1150 - 1000
         # Check win rate
         self.assertAlmostEqual(stats['WinRate'], 1.0)  # Both trades are profitable
         # Check max drawdown
         self.assertAlmostEqual(stats['MaxDrawdown'], 100/1250, delta=1e-2)  # (1250-1150)/1250
-        # Check profit factor
-        self.assertGreater(stats['ProfitFactor'], 1.0)
+        # Check profit factor: allow nan if no losses
+        self.assertTrue(np.isnan(stats['ProfitFactor']) or stats['ProfitFactor'] > 1.0)
         # Check expectancy
         self.assertTrue(isinstance(stats['Expectancy'], float))
         # Check Sharpe ratio
@@ -39,11 +39,11 @@ class TestPerformanceAnalytics(unittest.TestCase):
 
     def test_trade_log_aggregation(self):
         analytics = PerformanceAnalytics()
-        stats = analytics.calculate_statistics(self.portfolio, self.data_set, trade_log=self.trade_log)
+        stats = analytics.analyze_and_plot(self.portfolio, self.data_set, plot=False, save=False, trade_log=self.trade_log)
         # Check total commission
         self.assertEqual(stats['TotalCommission'], 4)
-        # Check total trades
-        self.assertEqual(stats['TotalTrades'], 4)
+        # Check total trades (completed trade pairs)
+        self.assertEqual(stats['TotalTrades'], 2)
         # Check average win/loss
         self.assertTrue(stats['AvgWin'] > 0)
         self.assertTrue(stats['AvgLoss'] <= 0 or np.isnan(stats['AvgLoss']))
