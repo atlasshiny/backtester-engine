@@ -19,9 +19,30 @@ within each symbol (typically by Date).
 """
 
 import pandas as pd
+import numpy as np
 from typing import List
 
 # add a list of methods that calculate certain indicators and have parameters in the add_indicator method to attach them to the main dataset
+
+def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
+    """Fast rolling mean using NumPy convolution."""
+    if window <= 0:
+        return arr
+    result = np.empty(len(arr), dtype=float)
+    result[:window-1] = np.nan
+    cumsum = np.cumsum(arr)
+    result[window-1:] = (cumsum[window-1:] - np.concatenate(([0], cumsum[:-window]))) / window
+    return result
+
+def _rolling_std_numpy(arr: np.ndarray, window: int) -> np.ndarray:
+    """Fast rolling standard deviation using NumPy."""
+    if window <= 0:
+        return arr
+    result = np.empty(len(arr), dtype=float)
+    result[:window-1] = np.nan
+    for i in range(window-1, len(arr)):
+        result[i] = np.std(arr[i-window+1:i+1])
+    return result
 
 class TechnicalIndicators:
     def __init__(self, data):
@@ -58,11 +79,21 @@ class TechnicalIndicators:
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
         if 'Symbol' in df.columns:
-            df['SMA_fast'] = df.groupby('Symbol')[col].transform(lambda x: x.rolling(window=fast_window).mean())
-            df['SMA_slow'] = df.groupby('Symbol')[col].transform(lambda x: x.rolling(window=slow_window).mean())
+            # Process per symbol using NumPy for speed
+            symbols = df['Symbol'].values
+            prices = df[col].values
+            fast_ma = np.empty(len(df), dtype=float)
+            slow_ma = np.empty(len(df), dtype=float)
+            for sym in np.unique(symbols):
+                mask = symbols == sym
+                indices = np.where(mask)[0]
+                fast_ma[indices] = _rolling_mean_numpy(prices[mask], fast_window)
+                slow_ma[indices] = _rolling_mean_numpy(prices[mask], slow_window)
+            df['SMA_fast'] = fast_ma
+            df['SMA_slow'] = slow_ma
         else:
-            df['SMA_fast'] = df[col].rolling(window=fast_window).mean()
-            df['SMA_slow'] = df[col].rolling(window=slow_window).mean()
+            df['SMA_fast'] = _rolling_mean_numpy(df[col].values, fast_window)
+            df['SMA_slow'] = _rolling_mean_numpy(df[col].values, slow_window)
         self.data = df
 
     def exponential_moving_average(self, window: int = 14, column: str | None = "Close"):
@@ -80,10 +111,27 @@ class TechnicalIndicators:
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
+        alpha = 2.0 / (window + 1.0)
+        
+        def _ema_numpy(arr: np.ndarray) -> np.ndarray:
+            """Fast EMA using NumPy."""
+            result = np.empty(len(arr), dtype=float)
+            result[0] = arr[0]
+            for i in range(1, len(arr)):
+                result[i] = alpha * arr[i] + (1 - alpha) * result[i-1]
+            return result
+        
         if 'Symbol' in df.columns:
-            df['EMA'] = df.groupby('Symbol')[col].transform(lambda x: x.ewm(span=window, adjust=False).mean())
+            symbols = df['Symbol'].values
+            prices = df[col].values
+            ema = np.empty(len(df), dtype=float)
+            for sym in np.unique(symbols):
+                mask = symbols == sym
+                indices = np.where(mask)[0]
+                ema[indices] = _ema_numpy(prices[mask])
+            df['EMA'] = ema
         else:
-            df['EMA'] = df[col].ewm(span=window, adjust=False).mean()
+            df['EMA'] = _ema_numpy(df[col].values)
         self.data = df
 
     def rsi(self, window: int = 14, column: str | None = "Close"):
@@ -101,20 +149,28 @@ class TechnicalIndicators:
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
+        
+        def _rsi_numpy(arr: np.ndarray) -> np.ndarray:
+            """Fast RSI using NumPy."""
+            delta = np.diff(arr, prepend=arr[0])
+            gain = np.where(delta > 0, delta, 0.0)
+            loss = np.where(delta < 0, -delta, 0.0)
+            avg_gain = _rolling_mean_numpy(gain, window)
+            avg_loss = _rolling_mean_numpy(loss, window)
+            rs = np.divide(avg_gain, avg_loss, out=np.full_like(avg_gain, np.nan), where=avg_loss!=0)
+            return 100 - (100 / (1 + rs))
+        
         if 'Symbol' in df.columns:
-            def rsi_calc(x):
-                delta = x.diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-                rs = gain / loss
-                return 100 - (100 / (1 + rs))
-            df['RSI'] = df.groupby('Symbol')[col].transform(rsi_calc)
+            symbols = df['Symbol'].values
+            prices = df[col].values
+            rsi = np.empty(len(df), dtype=float)
+            for sym in np.unique(symbols):
+                mask = symbols == sym
+                indices = np.where(mask)[0]
+                rsi[indices] = _rsi_numpy(prices[mask])
+            df['RSI'] = rsi
         else:
-            delta = df[col].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-            rs = gain / loss
-            df['RSI'] = 100 - (100 / (1 + rs))
+            df['RSI'] = _rsi_numpy(df[col].values)
         self.data = df
 
     def bollinger_bands(self, window: int = 20, num_std: float = 2.0, column: str | None = "Close"):
@@ -134,19 +190,25 @@ class TechnicalIndicators:
         """
         df = pd.DataFrame(self.data)
         col = column if column else df.columns[-1]
+        
         if 'Symbol' in df.columns:
-            def bb_calc(x):
-                sma = x.rolling(window=window).mean()
-                std = x.rolling(window=window).std()
-                upper = sma + num_std * std
-                lower = sma - num_std * std
-                return pd.DataFrame({'BB_upper': upper, 'BB_lower': lower})
-            bb = df.groupby('Symbol')[col].apply(lambda x: bb_calc(x)).reset_index(level=0, drop=True)
-            df['BB_upper'] = bb['BB_upper']
-            df['BB_lower'] = bb['BB_lower']
+            symbols = df['Symbol'].values
+            prices = df[col].values
+            upper = np.empty(len(df), dtype=float)
+            lower = np.empty(len(df), dtype=float)
+            for sym in np.unique(symbols):
+                mask = symbols == sym
+                indices = np.where(mask)[0]
+                sym_prices = prices[mask]
+                sma = _rolling_mean_numpy(sym_prices, window)
+                std = _rolling_std_numpy(sym_prices, window)
+                upper[indices] = sma + num_std * std
+                lower[indices] = sma - num_std * std
+            df['BB_upper'] = upper
+            df['BB_lower'] = lower
         else:
-            sma = df[col].rolling(window=window).mean()
-            std = df[col].rolling(window=window).std()
+            sma = _rolling_mean_numpy(df[col].values, window)
+            std = _rolling_std_numpy(df[col].values, window)
             df['BB_upper'] = sma + num_std * std
             df['BB_lower'] = sma - num_std * std
         self.data = df
