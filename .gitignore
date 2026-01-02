@@ -6,3 +6,4 @@ data/__pycache__
 backtest/dataclasses/__pycache__
 tests/__pycache__
 backtest_results.png
+__pycache__
