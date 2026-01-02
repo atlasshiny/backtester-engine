@@ -76,7 +76,7 @@ class TechnicalIndicators:
         -----
         The first (window-1) rows per symbol will be NaN due to rolling warmup.
         """
-        df = pd.DataFrame(self.data)
+        df = self.data
         col = column if column else df.columns[-1]
         if 'Symbol' in df.columns:
             # Process per symbol using NumPy for speed
@@ -109,7 +109,7 @@ class TechnicalIndicators:
         Adds column:
         - EMA
         """
-        df = pd.DataFrame(self.data)
+        df = self.data
         col = column if column else df.columns[-1]
         alpha = 2.0 / (window + 1.0)
         
@@ -147,7 +147,7 @@ class TechnicalIndicators:
         Adds column:
         - RSI
         """
-        df = pd.DataFrame(self.data)
+        df = self.data
         col = column if column else df.columns[-1]
         
         def _rsi_numpy(arr: np.ndarray) -> np.ndarray:
@@ -188,7 +188,7 @@ class TechnicalIndicators:
         - BB_upper
         - BB_lower
         """
-        df = pd.DataFrame(self.data)
+        df = self.data
         col = column if column else df.columns[-1]
         
         if 'Symbol' in df.columns:
