@@ -140,19 +140,17 @@ class BacktestEngine:
                 n_rows = len(date_df)
 
                 symbol_arr = arrays.get('Symbol', None)
-                
-                # 1) Execute previous bar's decision for each symbol using this bar's prices
+
+                # Combined loop: execute previous order and generate new signal in one pass
                 for idx in range(n_rows):
                     event = EventView(arrays, idx, columns)
                     symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+
+                    # 1) Execute previous bar's decision for each symbol using this bar's prices
                     if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
                         self.broker.execute(event=event, order=pending_order_by_symbol[symbol])
 
-                # 2) Generate new signals for each symbol for this timestamp
-                for idx in range(n_rows):
-                    event = EventView(arrays, idx, columns)
-                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
-
+                    # 2) Generate new signals for each symbol for this timestamp
                     # Per-symbol warmup (counted in bars, not rows)
                     if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
                         warmup_count_by_symbol[symbol] += 1
