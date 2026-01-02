@@ -110,26 +110,28 @@ class PerformanceAnalytics:
         # trade statistics
         trades = pd.DataFrame(trade_log) if trade_log is not None else pd.DataFrame()
         if not trades.empty:
-            # normalize timestamp if present
-            if 'timestamp' in trades.columns:
-                trades['timestamp'] = pd.to_datetime(trades['timestamp'], errors='coerce')
-            total_trades = int(len(trades[trades['side'].isin(['BUY', 'SELL'])])) if 'side' in trades.columns else 0
-            total_commission = float(trades['commission'].fillna(0.0).sum()) if 'commission' in trades.columns else 0.0
+            # Work with numpy arrays for faster processing
+            sides = trades['side'].values if 'side' in trades.columns else np.array([])
+            commissions = trades['commission'].fillna(0.0).values if 'commission' in trades.columns else np.array([])
+            
+            total_trades = int(np.sum(np.isin(sides, ['BUY', 'SELL']))) if len(sides) else 0
+            total_commission = float(np.sum(commissions)) if len(commissions) else 0.0
         else:
             total_trades = 0
             total_commission = 0.0
+            sides = np.array([])
+            commissions = np.array([])
 
-        # Win Rate + trade PnL: Robust FIFO match per symbol
+        # Win Rate + trade PnL: Robust FIFO match per symbol using NumPy for speed
         trade_pairs = []
-        if not trades.empty and 'symbol' in trades.columns:
-            # Convert to list of dicts once for faster iteration
-            trade_list = trades.to_dict('records')
+        if trade_log and len(trade_log) > 0:
+            # Work directly with list of dicts (already provided by broker)
             open_trades_by_symbol = {} # Stores lists of BUY dicts
-            for trade_dict in trade_list:
+            for trade_dict in trade_log:
                 sym = trade_dict.get('symbol')
                 side = trade_dict.get('side')
                 qty_to_match = trade_dict.get('qty', 0)
-                if sym is None or qty_to_match <= 0 or trade_dict['price'] is None:
+                if sym is None or qty_to_match <= 0 or trade_dict.get('price') is None:
                     continue
                 if side == 'BUY':
                     # Add to the queue for this symbol
@@ -177,23 +179,27 @@ class PerformanceAnalytics:
             profit_factor = (gross_profit / abs(gross_loss)) if gross_loss < 0 else float('nan')
             expectancy = float(np.mean(net_pnls)) if len(net_pnls) else float('nan')
 
-            # streaks
+            # streaks - optimized with NumPy
+            is_win = net_pnls > 0
+            is_loss = net_pnls < 0
+            
+            # Calculate consecutive streaks using NumPy
             max_consec_wins = 0
             max_consec_losses = 0
             current_wins = 0
             current_losses = 0
-            for p in net_pnls:
-                if p > 0:
+            for win, loss in zip(is_win, is_loss):
+                if win:
                     current_wins += 1
                     current_losses = 0
-                elif p < 0:
+                    max_consec_wins = max(max_consec_wins, current_wins)
+                elif loss:
                     current_losses += 1
                     current_wins = 0
+                    max_consec_losses = max(max_consec_losses, current_losses)
                 else:
                     current_wins = 0
                     current_losses = 0
-                max_consec_wins = max(max_consec_wins, current_wins)
-                max_consec_losses = max(max_consec_losses, current_losses)
 
             print(f"Total Trades: {len(net_pnls)}")
             print(f"Win Rate: {win_rate:.2f}%")
@@ -205,14 +211,18 @@ class PerformanceAnalytics:
             print(f"Max Consecutive Wins: {max_consec_wins}")
             print(f"Max Consecutive Losses: {max_consec_losses}")
 
-            # holding time (requires timestamps)
-            entry_ts = pd.to_datetime([tp['entry'].get('timestamp') for tp in trade_pairs], errors='coerce')
-            exit_ts = pd.to_datetime([tp['exit'].get('timestamp') for tp in trade_pairs], errors='coerce')
-            holding = (exit_ts - entry_ts)
-            holding = holding[~pd.isna(holding)]
-            if len(holding):
-                print(f"Avg Holding Time: {holding.mean()}")
-                print(f"Median Holding Time: {holding.median()}")
+            # holding time (requires timestamps) - use NumPy for speed
+            if trade_pairs:
+                entry_timestamps = [tp['entry'].get('timestamp') for tp in trade_pairs]
+                exit_timestamps = [tp['exit'].get('timestamp') for tp in trade_pairs]
+                # Convert to numpy datetime64 for fast operations
+                entry_ts = pd.to_datetime(entry_timestamps, errors='coerce')
+                exit_ts = pd.to_datetime(exit_timestamps, errors='coerce')
+                holding = (exit_ts - entry_ts)
+                valid_holding = holding[~pd.isna(holding)]
+                if len(valid_holding):
+                    print(f"Avg Holding Time: {valid_holding.mean()}")
+                    print(f"Median Holding Time: {valid_holding.median()}")
         else:
             print(f"Total Trades: {total_trades}")
             print("Win Rate: nan%")
@@ -276,20 +286,20 @@ class PerformanceAnalytics:
                 ax4.spines['top'].set_visible(False)
                 ax4.spines['right'].set_visible(False)
 
-                # 5) Per-symbol PnL
+                # 5) Per-symbol PnL - optimized aggregation
                 sym_pnl = {}
                 for tp in trade_pairs:
                     sym = tp['entry'].get('symbol')
-                    if sym is None:
-                        continue
-                    sym_pnl[sym] = sym_pnl.get(sym, 0.0) + float(tp['net_pnl'])
+                    if sym is not None:
+                        sym_pnl[sym] = sym_pnl.get(sym, 0.0) + float(tp['net_pnl'])
+                
                 if sym_pnl:
                     ax5 = fig.add_subplot(3, 2, 5)
-                    keys = list(sym_pnl.keys())
-                    vals = [sym_pnl[k] for k in keys]
-                    ax5.bar(range(len(keys)), vals, color='tab:blue', alpha=0.8)
-                    ax5.set_xticks(range(len(keys)))
-                    ax5.set_xticklabels(keys, rotation=45, ha='right')
+                    symbols = list(sym_pnl.keys())
+                    pnls = np.array([sym_pnl[s] for s in symbols], dtype=float)
+                    ax5.bar(range(len(symbols)), pnls, color='tab:blue', alpha=0.8)
+                    ax5.set_xticks(range(len(symbols)))
+                    ax5.set_xticklabels(symbols, rotation=45, ha='right')
                     ax5.set_ylabel('PnL (net)')
                     ax5.set_title('PnL by Symbol (Net)')
                     ax5.grid(False)
@@ -334,7 +344,10 @@ class PerformanceAnalytics:
             plt.close()
 
         if save:
-            trades.to_csv("./trade_log.csv", index=False)
+            # Only convert to DataFrame when saving to CSV
+            if trade_log:
+                trades_df = pd.DataFrame(trade_log)
+                trades_df.to_csv("./trade_log.csv", index=False)
             metrics = {
                 "Final Value": final_value,
                 "PnL": pnl,
