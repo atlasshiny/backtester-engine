@@ -358,3 +358,22 @@ class PerformanceAnalytics:
                 "Total Commission": total_commission
             }
             pd.DataFrame([metrics]).to_csv("./backtest_metrics.csv", index=False)
+        
+        # Prepare stats dictionary for testability
+        stats = {
+            'FinalValue': final_value,
+            'TotalPnL': pnl,
+            'MaxDrawdown': max_drawdown,
+            'SharpeRatio': sharpe,
+            'SortinoRatio': sortino,
+            'TotalTrades': len(trade_pairs) if trade_pairs else total_trades,
+            'TotalCommission': total_commission,
+            'WinRate': win_rate/100 if trade_pairs else float('nan'),
+            'ProfitFactor': profit_factor if trade_pairs else float('nan'),
+            'AvgWin': avg_win if trade_pairs else float('nan'),
+            'AvgLoss': avg_loss if trade_pairs else float('nan'),
+            'Expectancy': expectancy if trade_pairs else float('nan'),
+            'MaxConsecWins': max_consec_wins if trade_pairs else 0,
+            'MaxConsecLosses': max_consec_losses if trade_pairs else 0
+        }
+        return stats
