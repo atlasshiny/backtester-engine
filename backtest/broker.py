@@ -80,15 +80,15 @@ class Broker:
         }
         self.trade_log.append(trade)
 
-    def execute(self, event: tuple, order):
+    def execute(self, event, order):
         """
         Execute an Order on a given event/bar.
 
         Parameters
         ----------
         event:
-            A row from DataFrame.itertuples(), expected to have Open/High/Low/Close,
-            and optionally Date/Symbol.
+            Event-like object expected to have Open/High/Low/Close attributes,
+            and optionally Date/Symbol/Index.
         order:
             Order-like object with side, symbol, qty, and optional order_type,
             limit_price, timestamp.
