@@ -8,3 +8,6 @@ tests/__pycache__
 backtest_results.png
 __pycache__
 unittest.bat
+data/synthetic_plot_SYNTH.png
+data/synthetic_plot_TEST.png
+data/synthetic_plot_THEORY.png
