@@ -50,7 +50,7 @@ class PerformanceAnalytics:
         """Create a PerformanceAnalytics instance."""
         pass
 
-    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int = 252, max_points: int = 1000):
+    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int | None = 252, max_points: int = 1000):
         """
         Analyze portfolio performance, print statistics, and (optionally) plot results.
 
@@ -85,6 +85,30 @@ class PerformanceAnalytics:
         Annualization uses sqrt(252) by default. This is only appropriate when the
         returns series represents daily steps.
         """
+        # Determine annualization: if caller provided None, try to infer from the
+        # data_set['Date'] timestamps. Otherwise use the provided factor.
+        def _infer_annualization(dates) -> float:
+            try:
+                idx = pd.to_datetime(dates)
+                if len(idx) < 2:
+                    return 252.0
+                deltas = (idx[1:] - idx[:-1]).to_series().dt.total_seconds()
+                med = deltas.median()
+                if med <= 0 or pd.isna(med):
+                    return 252.0
+                seconds_per_year = 365.0 * 24.0 * 3600.0
+                periods_per_year = seconds_per_year / med
+                return float(periods_per_year)
+            except Exception:
+                return 252.0
+
+        if annualization_factor is None:
+            if isinstance(data_set, pd.DataFrame) and 'Date' in data_set.columns:
+                annualization = _infer_annualization(data_set['Date'].values)
+            else:
+                annualization = 252.0
+        else:
+            annualization = float(annualization_factor)
         # convert value history to numpy array for calculations
         equity = np.array(portfolio.value_history, dtype=float)
         if len(equity) >= 2:
@@ -119,7 +143,7 @@ class PerformanceAnalytics:
         # sharpe ratio (robust to division by zero or nan)
         std_ret = np.std(returns) if len(returns) else float('nan')
         if len(returns) and std_ret > 0 and np.isfinite(std_ret):
-            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(annualization_factor)
+            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(annualization)
         else:
             sharpe = float('nan')
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
@@ -129,7 +153,7 @@ class PerformanceAnalytics:
         if len(downside_returns) > 0:
             downside_dev = np.std(downside_returns)
             if downside_dev > 0 and np.isfinite(downside_dev):
-                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(annualization_factor)
+                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(annualization)
             else:
                 sortino = float('nan')
         else:
@@ -380,7 +404,7 @@ class PerformanceAnalytics:
                 window = min(60, len(returns))
                 rolling_mean = pd.Series(returns).rolling(window=window).mean()
                 rolling_std = pd.Series(returns).rolling(window=window).std()
-                rolling_sharpe = (rolling_mean - risk_free_rate) / (rolling_std + 1e-8) * np.sqrt(annualization_factor)
+                rolling_sharpe = (rolling_mean - risk_free_rate) / (rolling_std + 1e-8) * np.sqrt(annualization)
                 ax8 = axes[7]
                 sharpe_plot = downsample(rolling_sharpe.dropna())
                 ax8.plot(sharpe_plot, color='tab:cyan', label=f'Rolling Sharpe ({window})')
