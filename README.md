@@ -1,29 +1,26 @@
 # Backtester Engine
 
-## Overview
+Lightweight, modular Python backtesting framework for researching and prototyping systematic trading strategies.
 
-This is a modular, extensible Python backtesting engine for systematic trading strategies. It supports realistic trade execution, multi-symbol data, slippage, commission, and advanced analytics. Designed for research, prototyping, and educational use.
-
----
-
-## Features
-
-- **Modular OOP Design:** Strategy, Portfolio, Engine, Order, and Analytics components
-- **Indicator Support:** Rolling window/historical data for indicator-based strategies (e.g., moving averages)
-- **Realistic Execution:** Slippage and commission modeling
-- **Multi-Symbol Support:** Backtest multiple assets simultaneously
-- **Trade Logging:** Detailed trade logs and position tracking
-- **Performance Analytics:** Equity curve, drawdown, Sharpe/Sortino ratios, and more
-- **Synthetic Data Generation:** Tools for creating test datasets
-- **Extensible:** Easy to add new strategies, order types, or analytics
+Key capabilities: realistic execution (slippage & commission), multi-symbol backtests, indicator support, trade logging, and performance analytics.
 
 ---
 
-## Installation
+## Quick Highlights
+
+- Modular components: `Engine`, `Strategy`, `Portfolio`, `Order`, and analytics
+- Support for indicator-driven strategies and rolling-history windows
+- Realistic execution modeling: slippage and commission
+- Multi-symbol backtesting and detailed trade logs
+- Built-in utilities for synthetic data generation and plotting
+
+---
+
+## Getting Started
 
 1. Clone this repository:
 	```bash
-	git clone https://github.com/yourusername/backtester_engine.git
+	git clone https://github.com/atlasshiny/backtester_engine.git
 	cd backtester_engine
 	```
 2. Install dependencies:
@@ -70,36 +67,43 @@ engine.results(plot=True, save=False)
 ## Project Structure
 
 ```
-backtest/
-	 engine.py                # BacktestEngine: main loop
-	 portfolio.py             # Portfolio: cash, positions, trade log
-	 order.py                 # Order dataclass
-	 performance_analytics.py # Analytics and plotting
-	 strategy.py              # Base Strategy class
-strategies/
-	 simple_moving_average.py # Example indicator strategy
-	 buy_n_hold.py            # Example passive strategy
-data/
-	 synthetic.csv            # Example dataset
-	 synthetic_data_generator.py # Data generation tools
-main.py                     # Entry point
-test.py                     # Example/test script
+backtest/                          # Core engine, portfolio, order, analytics
+	 engine.py                     # BacktestEngine: main loop
+	 portfolio.py                  # Portfolio: cash, positions, trade log
+	 order.py                      # Order dataclass
+	 performance_analytics.py      # Analytics and plotting
+	 strategy.py                   # Base Strategy class
+data/                              # Example and real datasets
+	 synthetic.csv                 # Example dataset
+	 synthetic_data_generator.py   # Data generation tools
+simulations/                  
+	 monte_carlo.py                # run multiple simulations with added noise
+main.py                            # Entry point
+test.py                            # Example/test script
 ```
 
 ---
 
-## Extending
+## Extending the Engine
 
-- **Add a Strategy:**
-  1. Subclass `Strategy` in `strategies/`
-  2. Implement `check_condition(self, event, history=None)`
-  3. Set `self.history_window` in `__init__` if you need rolling data
+- Add new strategies by subclassing `Strategy` in `strategies/` and implementing the decision logic (e.g., `check_condition()`).
+- Add analytics by extending `performance_analytics.py` with new metrics or visualizations.
+- Add custom order/execution models by modifying `broker.py` and `order.py`.
 
-- **Add Analytics:**
-  - Extend `performance_analytics.py` with new metrics or plots
+---
+
+## Tests
+
+Run the provided tests (requires pytest):
+
+```bash
+pytest -q
+```
 
 ---
 
 ## License
 
-MIT License. See LICENSE file for details.
+MIT License — see the `LICENSE` file.
+
+```
