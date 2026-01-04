@@ -2,8 +2,6 @@
 pandas
 numpy
 matplotlib
-os
-sys
 seaborn
 numba
 
