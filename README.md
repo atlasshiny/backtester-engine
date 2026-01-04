@@ -105,5 +105,3 @@ pytest -q
 ## License
 
 MIT License — see the [LICENSE](LICENSE) file.
-
-```
