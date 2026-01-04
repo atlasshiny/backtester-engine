@@ -28,9 +28,15 @@ from numba import njit
 @njit
 def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     """Fast rolling mean using NumPy."""
+    # Ensure we always return a float array to keep numba return types consistent
+    result = np.empty(len(arr), dtype=np.float64)
     if window <= 0:
-        return arr
-    result = np.empty(len(arr), dtype=float)
+        for i in range(len(arr)):
+            result[i] = arr[i]
+        return result
+
+    result[:] = np.nan
+    # preserve same warmup behavior: first window-1 values are NaN
     result[:window-1] = np.nan
     for i in range(window-1, len(arr)):
         result[i] = np.mean(arr[i-window+1:i+1])
@@ -39,9 +45,14 @@ def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
 @njit
 def _rolling_std_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     """Fast rolling standard deviation using NumPy."""
+    # Ensure we always return a float array to keep numba return types consistent
+    result = np.empty(len(arr), dtype=np.float64)
     if window <= 0:
-        return arr
-    result = np.empty(len(arr), dtype=float)
+        for i in range(len(arr)):
+            result[i] = arr[i]
+        return result
+
+    result[:] = np.nan
     result[:window-1] = np.nan
     for i in range(window-1, len(arr)):
         result[i] = np.std(arr[i-window+1:i+1])
@@ -156,13 +167,26 @@ class TechnicalIndicators:
         @njit
         def _rsi_numpy(arr: np.ndarray, window: int) -> np.ndarray:
             """Fast RSI using NumPy."""
-            delta = np.diff(arr, prepend=arr[0])
+            # numba doesn't support np.diff(..., prepend=...), compute manually
+            delta = np.empty(len(arr), dtype=np.float64)
+            if len(arr) > 0:
+                delta[0] = 0.0
+            for i in range(1, len(arr)):
+                delta[i] = arr[i] - arr[i-1]
             gain = np.where(delta > 0, delta, 0.0)
             loss = np.where(delta < 0, -delta, 0.0)
             avg_gain = _rolling_mean_numpy(gain, window)
             avg_loss = _rolling_mean_numpy(loss, window)
-            rs = np.divide(avg_gain, avg_loss, out=np.full_like(avg_gain, np.nan), where=avg_loss!=0)
-            return 100 - (100 / (1 + rs))
+            rs = np.empty(len(avg_gain), dtype=np.float64)
+            for i in range(len(avg_gain)):
+                if avg_loss[i] != 0:
+                    rs[i] = avg_gain[i] / avg_loss[i]
+                else:
+                    rs[i] = np.nan
+            result = np.empty(len(rs), dtype=np.float64)
+            for i in range(len(rs)):
+                result[i] = 100.0 - (100.0 / (1.0 + rs[i]))
+            return result
         
         if 'Symbol' in df.columns:
             symbols = df['Symbol'].values
