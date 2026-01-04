@@ -26,8 +26,7 @@ def main():
     # Generate strategy indicators if needed and attach to data_set
     # If Symbol column exists, sort by Date then Symbol (long format)
     data_processing = TechnicalIndicators(data=data_set)
-    if 'Symbol' in data_set.columns:
-        data_processing.data = data_processing.data.sort_values(['Date', 'Symbol']).reset_index(drop=True)
+    data_processing.data = data_processing.data.sort_values(['Date', 'Symbol']).reset_index(drop=True)
     data_processing.simple_moving_average()
     data_set = data_processing.final_df()
 
@@ -35,7 +34,7 @@ def main():
     strategy = SimpleMovingAverage()
 
     # Create portfolio
-    account = Portfolio(initial_cash=10000)
+    account = Portfolio(initial_cash=25000)
 
     # Create broker
     broker = Broker(portfolio=account, slippage=0.001, commission=0.001, log_hold=False)
@@ -44,7 +43,13 @@ def main():
     engine = BacktestEngine(strategy=strategy, portfolio=account, broker=broker, data_set=data_set, warm_up=30, group_by_date=True)
 
     engine.run()
-    engine.results(plot=True, save=False)
+    # annualization factor table
+    # Calendar hourly data (every hour, incl. weekends): use 8760.
+    # Market-hour hourly data (only exchange open hours): use trading_hours_per_year (e.g., 252 * hours_per_trading_day).
+    # Daily data: use 252 (trading days) or 365 (calendar days) depending on convention.
+    # Monthly data: use 12.
+    # set equal to None to let the machine attempt to detect the factor itself
+    engine.results(plot=True, save=False, annualization_factor=None)
 
 
 if __name__ == "__main__":
