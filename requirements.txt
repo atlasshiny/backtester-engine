@@ -1,0 +1,11 @@
+# Minimal runtime dependencies for backtester_engine
+pandas
+numpy
+matplotlib
+os
+sys
+seaborn
+numba
+
+# Test/dev tools
+pytest
