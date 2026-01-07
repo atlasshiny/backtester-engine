@@ -42,6 +42,9 @@ def main():
     # Create and run engine
     engine = BacktestEngine(strategy=strategy, portfolio=account, broker=broker, data_set=data_set, warm_up=30, group_by_date=True)
 
+    # Set GPU status
+    engine.set_gpu_policy(True, 10000)
+
     engine.run()
     # annualization factor table
     # Calendar hourly data (every hour, incl. weekends): use 8760.
