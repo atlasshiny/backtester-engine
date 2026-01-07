@@ -4,7 +4,29 @@ matplotlib.use('Agg')  # Use non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from typing import Literal
 from numba import njit
+
+try:  # Optional GPU acceleration
+    import cupy as cp  # type: ignore
+    _CUPY_AVAILABLE = True
+except Exception:  # noqa: BLE001 - import-time probe only
+    cp = None
+    _CUPY_AVAILABLE = False
+
+
+def _select_array_module(prefer_gpu: Literal["auto", True, False], length: int, gpu_min_size: int) -> object:
+    if prefer_gpu is False:
+        return np
+    if _CUPY_AVAILABLE and (prefer_gpu is True or (prefer_gpu == "auto" and length >= gpu_min_size)):
+        return cp
+    return np
+
+
+def _to_numpy(arr):
+    if cp is not None and isinstance(arr, cp.ndarray):
+        return cp.asnumpy(arr)
+    return np.asarray(arr)
 
 @njit
 def _calculate_consecutive_streaks(is_win: np.ndarray, is_loss: np.ndarray) -> tuple:
@@ -50,7 +72,7 @@ class PerformanceAnalytics:
         """Create a PerformanceAnalytics instance."""
         pass
 
-    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int | None = 252, max_points: int = 1000):
+    def analyze_and_plot(self, portfolio, data_set, plot: bool = True, save: bool = False, risk_free_rate: float = 0.0, trade_log=None, annualization_factor: int | None = 252, max_points: int = 1000, prefer_gpu: Literal["auto", True, False] = "auto", gpu_min_size: int = 10000):
         """
         Analyze portfolio performance, print statistics, and (optionally) plot results.
 
@@ -75,6 +97,11 @@ class PerformanceAnalytics:
             Integer factor for annualizing Sharpe/Sortino ratios (default: 252).
         max_points:
             Maximum number of points to plot in charts (downsampling for performance).
+        prefer_gpu:
+            "auto" (default) uses CuPy when available and the equity array is at least gpu_min_size.
+            True forces GPU when possible; False keeps CPU only.
+        gpu_min_size:
+            Minimum array length required before attempting GPU acceleration in auto mode.
 
         Output
         ------
@@ -109,15 +136,20 @@ class PerformanceAnalytics:
                 annualization = 252.0
         else:
             annualization = float(annualization_factor)
-        # convert value history to numpy array for calculations
-        equity = np.array(portfolio.value_history, dtype=float)
-        if len(equity) >= 2:
-            returns = np.diff(equity) / equity[:-1]
+        xp = _select_array_module(prefer_gpu, len(portfolio.value_history), gpu_min_size)
+
+        # convert value history to chosen array module for calculations
+        equity = xp.asarray(portfolio.value_history, dtype=xp.float64)
+        equity_np = _to_numpy(equity)
+        if equity.size >= 2:
+            returns = xp.diff(equity) / equity[:-1]
+            returns_np = _to_numpy(returns)
         else:
-            returns = np.array([])
+            returns = xp.asarray([], dtype=xp.float64)
+            returns_np = np.array([])
 
         # basic metrics
-        final_value = equity[-1] if len(equity) else float('nan')
+        final_value = float(equity_np[-1]) if equity_np.size else float('nan')
         pnl = (final_value - portfolio.initial_cash) if np.isfinite(final_value) else float('nan')
         print(f"Final Portfolio Value: {final_value:.2f}")
         print(f"PnL: {pnl:.2f}")
@@ -131,29 +163,29 @@ class PerformanceAnalytics:
         print("\nNOTICE: All trades include slippage and commission.")
 
         # drawdown
-        if len(equity):
-            running_max = np.maximum.accumulate(equity)
+        if equity.size:
+            running_max = xp.maximum.accumulate(equity)
             drawdowns = (running_max - equity) / running_max
-            max_drawdown = float(drawdowns.max())
+            max_drawdown = float(_to_numpy(drawdowns).max())
         else:
-            drawdowns = np.array([])
+            drawdowns = xp.asarray([], dtype=xp.float64)
             max_drawdown = float('nan')
         print(f"Maximum Drawdown: {max_drawdown*100:.2f}%")
 
         # sharpe ratio (robust to division by zero or nan)
-        std_ret = np.std(returns) if len(returns) else float('nan')
-        if len(returns) and std_ret > 0 and np.isfinite(std_ret):
-            sharpe = (np.mean(returns) - risk_free_rate) / std_ret * np.sqrt(annualization)
+        std_ret = np.std(returns_np) if len(returns_np) else float('nan')
+        if len(returns_np) and std_ret > 0 and np.isfinite(std_ret):
+            sharpe = (np.mean(returns_np) - risk_free_rate) / std_ret * np.sqrt(annualization)
         else:
             sharpe = float('nan')
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
 
         # sortino ratio (robust to division by zero or nan)
-        downside_returns = returns[returns < 0] if len(returns) else np.array([])
+        downside_returns = returns_np[returns_np < 0] if len(returns_np) else np.array([])
         if len(downside_returns) > 0:
             downside_dev = np.std(downside_returns)
             if downside_dev > 0 and np.isfinite(downside_dev):
-                sortino = (np.mean(returns) - risk_free_rate) / downside_dev * np.sqrt(annualization)
+                sortino = (np.mean(returns_np) - risk_free_rate) / downside_dev * np.sqrt(annualization)
             else:
                 sortino = float('nan')
         else:
@@ -268,7 +300,7 @@ class PerformanceAnalytics:
         if plot:
             # Deduplicate equity curve: in group_by_date mode with 2 symbols, value_history is updated twice per date
             num_symbols = len(data_set['Symbol'].unique()) if 'Symbol' in data_set.columns else 1
-            equity_deduplicated = equity[::num_symbols] if num_symbols > 1 else equity
+            equity_deduplicated = equity_np[::num_symbols] if num_symbols > 1 else equity_np
 
             fig, axes = plt.subplots(4, 2, figsize=(20, 16))
             axes = axes.flatten()
@@ -309,9 +341,9 @@ class PerformanceAnalytics:
                 ax2.spines['right'].set_visible(False)
 
             # 3) Returns distribution
-            if len(returns):
+            if len(returns_np):
                 ax3 = axes[2]
-                ret_plot = downsample(returns)
+                ret_plot = downsample(returns_np)
                 ax3.hist(ret_plot, bins=50, color='tab:purple', alpha=0.8)
                 ax3.set_xlabel('Per-step returns')
                 ax3.set_ylabel('Frequency')
@@ -400,10 +432,10 @@ class PerformanceAnalytics:
             ax7.spines['right'].set_visible(False)
 
             # 8) Rolling Sharpe Ratio
-            if len(returns) > 20:
-                window = min(60, len(returns))
-                rolling_mean = pd.Series(returns).rolling(window=window).mean()
-                rolling_std = pd.Series(returns).rolling(window=window).std()
+            if len(returns_np) > 20:
+                window = min(60, len(returns_np))
+                rolling_mean = pd.Series(returns_np).rolling(window=window).mean()
+                rolling_std = pd.Series(returns_np).rolling(window=window).std()
                 rolling_sharpe = (rolling_mean - risk_free_rate) / (rolling_std + 1e-8) * np.sqrt(annualization)
                 ax8 = axes[7]
                 sharpe_plot = downsample(rolling_sharpe.dropna())

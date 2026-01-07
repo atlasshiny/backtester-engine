@@ -33,11 +33,65 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
+from typing import Literal
 from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
 from .event_view import HistoryView
+
+try:
+    import cupy as cp  # type: ignore
+    _CUPY_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    cp = None
+    _CUPY_AVAILABLE = False
+
+
+def get_gpu_status() -> dict:
+    """Check GPU availability and return status information.
+    
+    Returns
+    -------
+    dict with keys:
+        - available (bool): Whether CuPy is installed and GPU is accessible
+        - backend (str): 'CuPy' if available, else 'NumPy (CPU)'
+        - device (str): GPU device name if available, else 'CPU'
+        - message (str): Human-readable status message
+    """
+    if not _CUPY_AVAILABLE:
+        return {
+            'available': False,
+            'backend': 'NumPy (CPU)',
+            'device': 'CPU',
+            'message': 'CuPy not installed. Using CPU/NumPy. Install via: pip install cupy-cuda12x'
+        }
+    try:
+        device_info = cp.cuda.Device().attributes
+        device_name = device_info.get('ComputeCapability', 'Unknown')
+        device_name = f"GPU (Compute Capability {device_name})"
+        return {
+            'available': True,
+            'backend': 'CuPy',
+            'device': device_name,
+            'message': f'GPU acceleration enabled. Backend: CuPy, Device: {device_name}'
+        }
+    except Exception as e:
+        return {
+            'available': False,
+            'backend': 'NumPy (CPU)',
+            'device': 'CPU (CuPy unavailable)',
+            'message': f'CuPy available but GPU not accessible. Falling back to CPU. Error: {e}'
+        }
+
+
+def print_gpu_status():
+    """Print GPU status to stdout."""
+    status = get_gpu_status()
+    print(f"\n{'='*60}")
+    print(f"GPU Status: {status['message']}")
+    print(f"Backend: {status['backend']} | Device: {status['device']}")
+    print(f"{'='*60}\n")
 
 
 class BarView:
@@ -74,9 +128,14 @@ class BacktestEngine:
     group_by_date:
         When True and a Date column exists, process all symbols at a given Date
         together (reduces ordering/time bias in multi-asset data).
+    prefer_gpu:
+        "auto" (default): uses GPU if available and dataset is large enough.
+        True: force GPU (raise error if unavailable).
+        False: force CPU/NumPy.
+        This parameter is passed to TechnicalIndicators and PerformanceAnalytics.
     """
 
-    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker: Broker, data_set: pd.DataFrame, warm_up: int = 0, group_by_date: bool = False):
+    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker: Broker, data_set: pd.DataFrame, warm_up: int = 0, group_by_date: bool = False, prefer_gpu: Literal["auto", True, False] = "auto"):
         """
         Initialize the BacktestEngine.
 
@@ -85,6 +144,9 @@ class BacktestEngine:
         If the provided dataset does not contain a Symbol column, this constructor
         injects Symbol='SINGLE' so that the rest of the engine can treat the input
         consistently as long format.
+        
+        The prefer_gpu parameter is stored and passed to downstream components
+        (TechnicalIndicators, PerformanceAnalytics) to enable consistent GPU usage.
         """
         self.strategy = strategy
         # Ensure single-asset datasets behave like multi-asset long format by injecting a stable Symbol.
@@ -97,6 +159,39 @@ class BacktestEngine:
         self.broker = broker
         self.warm_up = warm_up
         self.group_by_date = group_by_date
+        self.prefer_gpu = prefer_gpu
+        # Default minimum size for GPU heuristics (used by downstream modules)
+        self.gpu_min_size = 10000
+        
+        # Validate GPU preference if forced
+        if prefer_gpu is True and not _CUPY_AVAILABLE:
+            raise RuntimeError(
+                "prefer_gpu=True but CuPy is not available. "
+                "Install via: pip install cupy-cuda12x\n"
+                "Or set prefer_gpu='auto' or False to use CPU."
+            )
+
+    def set_gpu_policy(self, prefer_gpu: Literal["auto", True, False], gpu_min_size: int | None = None):
+        """Set the engine-wide GPU preference.
+
+        prefer_gpu: 'auto' | True | False
+            - 'auto': use GPU when available and beneficial
+            - True: force GPU (raises RuntimeError if unavailable)
+            - False: force CPU/NumPy
+        gpu_min_size: optional minimum array length for auto heuristics
+        """
+        if prefer_gpu is True and not _CUPY_AVAILABLE:
+            raise RuntimeError("prefer_gpu=True but CuPy is not available on this system.")
+        self.prefer_gpu = prefer_gpu
+        if gpu_min_size is not None:
+            self.gpu_min_size = int(gpu_min_size)
+
+    def get_gpu_policy(self) -> dict:
+        """Return current engine GPU policy as a dict."""
+        return {
+            'prefer_gpu': self.prefer_gpu,
+            'gpu_min_size': getattr(self, 'gpu_min_size', None)
+        }
 
     def run(self):
         """
@@ -302,7 +397,17 @@ class BacktestEngine:
         Broker.trade_log. In multi-asset row-by-row mode, each equity "step" is an
         event (Date, Symbol) rather than a single Date. For true per-Date returns,
         prefer running with group_by_date=True.
+        
+        GPU acceleration is controlled by the engine's prefer_gpu parameter, which
+        is passed to the analytics engine.
         """
         analytics = PerformanceAnalytics()
-        # Pass broker.trade_log to analytics for trade statistics
-        analytics.analyze_and_plot(self.portfolio, self.data_set, plot=plot, save=save, risk_free_rate=risk_free_rate, trade_log=self.broker.trade_log, annualization_factor=annualization_factor)
+        # Pass broker.trade_log to analytics for trade statistics, and propagate GPU preference
+        analytics.analyze_and_plot(
+            self.portfolio, self.data_set, 
+            plot=plot, save=save, 
+            risk_free_rate=risk_free_rate, 
+            trade_log=self.broker.trade_log, 
+            annualization_factor=annualization_factor,
+            prefer_gpu=self.prefer_gpu
+        )
