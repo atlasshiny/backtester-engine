@@ -18,12 +18,19 @@ Typical usage
 	engine.run()
 	engine.results(...)
 
+GPU Acceleration
+----------------
+To enable GPU acceleration:
+1. Install CuPy: pip install cupy-cuda12x (adjust cuda version for your system)
+2. Use print_gpu_status() to verify GPU availability
+3. Pass prefer_gpu='auto' (default) or True to BacktestEngine
+
 Timing model
 ------------
 Orders generated at time t are executed on the next bar for that symbol.
 """
 
-from .engine import BacktestEngine
+from .engine import BacktestEngine, get_gpu_status, print_gpu_status
 from .strategy import Strategy
 from .portfolio import Portfolio
 from .broker import Broker
