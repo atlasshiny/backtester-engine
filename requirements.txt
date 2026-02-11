@@ -5,5 +5,8 @@ matplotlib
 seaborn
 numba
 
+# GPU tools
+cupy
+
 # Test/dev tools
 pytest
