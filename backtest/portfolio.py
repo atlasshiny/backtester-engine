@@ -14,8 +14,8 @@ Value history is updated using either:
 - A {symbol: price} mapping for multi-asset valuation.
 """
 
-import numpy as np
 from backtest.position import Position
+from .array_utils import select_array_module, ensure_array
 
 class Portfolio:
     def __init__(self, initial_cash: float):
@@ -37,8 +37,9 @@ class Portfolio:
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions = {}
-        # Use a NumPy array for numeric history to enable vectorized ops
-        self.value_history = np.array([], dtype=float)
+        # Keep a Python list buffer for fast appends during the run.
+        # Convert to an `xp` array on-demand when analytics need it.
+        self.value_history = []
 
     def add_position(self, symbol: str, qty: int, price: float):
         """
@@ -106,8 +107,16 @@ class Portfolio:
         else:
             value = self.cash + sum(pos.qty * current_price for pos in self.positions.values())
 
-        # Append into NumPy array (creates a new array but keeps API simple)
-        self.value_history = np.append(self.value_history, float(value))
+        # Append to the list buffer (fast amortized O(1)).
+        self.value_history.append(float(value))
+
+    def value_history_xp(self, prefer_gpu: object = "auto", gpu_min_size: int = 10000):
+        """Return the value history as an array in the selected array module (np or cp).
+
+        This performs a single conversion of the in-memory list to an `xp` array.
+        """
+        xp = select_array_module(prefer_gpu, len(self.value_history), gpu_min_size)
+        return ensure_array(self.value_history, xp)
 
     def portfolio_value_snapshot(self, price: float) -> float:
         """
