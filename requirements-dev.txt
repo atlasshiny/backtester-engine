@@ -1,0 +1,29 @@
+# Core runtime (repeat for reproducible dev env)
+pandas
+numpy
+matplotlib
+
+# Optional plotting used by performance_analytics
+seaborn
+
+# JIT / performance helpers used by analytics
+numba
+
+# Testing
+pytest
+pytest-cov
+pytest-mock
+
+# Formatting / linting / static analysis (recommended)
+black
+isort
+flake8
+mypy
+
+# CI / env management (optional)
+tox
+
+# Optional GPU (platform / CUDA-specific - install only if you have CUDA toolkit installed)
+cupy
+# Add an entry here only if you intend to run GPU tests locally/CI:
+# cupy
