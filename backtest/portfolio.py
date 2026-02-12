@@ -14,6 +14,7 @@ Value history is updated using either:
 - A {symbol: price} mapping for multi-asset valuation.
 """
 
+import numpy as np
 from backtest.position import Position
 
 class Portfolio:
@@ -36,7 +37,8 @@ class Portfolio:
         self.initial_cash = initial_cash
         self.cash = initial_cash
         self.positions = {}
-        self.value_history = []
+        # Use a NumPy array for numeric history to enable vectorized ops
+        self.value_history = np.array([], dtype=float)
 
     def add_position(self, symbol: str, qty: int, price: float):
         """
@@ -99,13 +101,13 @@ class Portfolio:
             for sym, pos in self.positions.items():
                 px = current_price.get(sym)
                 if px is None:
-                    # If we don't have a price yet, fall back to avg_price
                     px = pos.avg_price
                 value += pos.qty * px
         else:
             value = self.cash + sum(pos.qty * current_price for pos in self.positions.values())
 
-        self.value_history.append(value)
+        # Append into NumPy array (creates a new array but keeps API simple)
+        self.value_history = np.append(self.value_history, float(value))
 
     def portfolio_value_snapshot(self, price: float) -> float:
         """
