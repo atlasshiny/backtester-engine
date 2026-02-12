@@ -149,19 +149,34 @@ class BacktestEngine:
         (TechnicalIndicators, PerformanceAnalytics) to enable consistent GPU usage.
         """
         self.strategy = strategy
+        # Default minimum size for GPU heuristics (used by downstream modules)
+        self.gpu_min_size = 10000
         # Ensure single-asset datasets behave like multi-asset long format by injecting a stable Symbol.
-        # This avoids treating each row index as a separate "symbol".
-        if 'Symbol' not in data_set.columns:
-            data_set = data_set.copy()
-            data_set['Symbol'] = 'SINGLE'
-        self.data_set = data_set
+        # This avoids treating each row index as a separate "symbol". Accept either a pandas DataFrame or a dict of arrays (from df_to_arrays).
+        self.arrays = None
+        if isinstance(data_set, dict):
+            # Choose array module based on explicit preference and dataset length
+            from .array_utils import select_array_module, ensure_array
+            xp = select_array_module(prefer_gpu, len(next(iter(data_set.values()))), self.gpu_min_size)
+            self.arrays = {k: ensure_array(v, xp) for k, v in data_set.items()}
+            # inject Symbol if missing (preserve xp array type)
+            if 'Symbol' not in self.arrays:
+                n = len(next(iter(self.arrays.values())))
+                if xp is not np:
+                    self.arrays['Symbol'] = xp.asarray(['SINGLE'] * n)
+                else:
+                    self.arrays['Symbol'] = np.array(['SINGLE'] * n)
+            self.data_set = None
+        else:
+            if 'Symbol' not in data_set.columns:
+                data_set = data_set.copy()
+                data_set['Symbol'] = 'SINGLE'
+            self.data_set = data_set
         self.portfolio = portfolio
         self.broker = broker
         self.warm_up = warm_up
         self.group_by_date = group_by_date
         self.prefer_gpu = prefer_gpu
-        # Default minimum size for GPU heuristics (used by downstream modules)
-        self.gpu_min_size = 10000
         
         # Validate GPU preference if forced
         if prefer_gpu is True and not _CUPY_AVAILABLE:
@@ -226,100 +241,188 @@ class BacktestEngine:
         warmup_count_by_symbol: dict[str, int] = defaultdict(int)
         bar_index_by_symbol: dict[str, int] = defaultdict(int)
 
-        # If strategy requests history, pre-split by symbol to avoid mixing assets in history slices
-        # Convert to NumPy arrays per symbol for fast slicing
+        # If strategy requests history, pre-split by symbol to avoid mixing assets in history slices.
+        # Convert to NumPy arrays per symbol for fast slicing. Support dict-of-arrays.
         data_by_symbol = None
         arrays_by_symbol = None
-        if window_size and window_size > 0 and 'Symbol' in self.data_set.columns:
-            data_by_symbol = {sym: grp.reset_index(drop=True) for sym, grp in self.data_set.groupby('Symbol', sort=False)}
-            # Pre-extract arrays per symbol for fast history slicing
-            arrays_by_symbol = {
-                sym: {col: df[col].values for col in df.columns}
-                for sym, df in data_by_symbol.items()
-            }
+        if window_size and window_size > 0:
+            if self.arrays is not None and 'Symbol' in self.arrays:
+                symbols = self.arrays['Symbol']
+                arrays_by_symbol = {}
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    arrays_by_symbol[sym] = {col: arr[mask] for col, arr in self.arrays.items()}
+            elif self.data_set is not None and 'Symbol' in self.data_set.columns:
+                data_by_symbol = {sym: grp.reset_index(drop=True) for sym, grp in self.data_set.groupby('Symbol', sort=False)}
+                # Pre-extract arrays per symbol for fast history slicing
+                arrays_by_symbol = {
+                    sym: {col: df[col].values for col in df.columns}
+                    for sym, df in data_by_symbol.items()
+                }
 
         # Optionally bundle processing by timestamp to avoid intra-date ordering bias in long-format data.
         # This makes all symbols at the same Date behave as "simultaneous".
-        if self.group_by_date and 'Date' in self.data_set.columns:
-            grouped = self.data_set.groupby('Date', sort=False)
-            for _, date_df in grouped:
-                # Convert to numpy arrays once for faster access (avoid itertuples overhead)
-                columns = date_df.columns
-                arrays = {col: date_df[col].to_numpy(copy=False) for col in columns}
-                # Provide a stable Index-like field for timestamp fallbacks/logging.
-                arrays['Index'] = date_df.index.to_numpy(copy=False)
-                n_rows = len(date_df)
+        if self.group_by_date:
+            # Support DataFrame grouping or dict-of-arrays grouping by Date
+            if self.arrays is not None and 'Date' in self.arrays:
+                dates = self.arrays['Date']
+                # preserve first-seen order of unique dates
+                uniq, first_idx = np.unique(dates, return_index=True)
+                order = np.argsort(first_idx)
+                uniq_dates = uniq[order]
+                for d in uniq_dates:
+                    mask = dates == d
+                    arrays = {col: arr[mask] for col, arr in self.arrays.items()}
+                    columns = list(arrays.keys())
+                    # Provide a stable Index-like field for timestamp fallbacks/logging.
+                    arrays['Index'] = np.nonzero(mask)[0]
+                    n_rows = len(next(iter(arrays.values())))
 
-                # Pre-extract frequently accessed arrays for ultra-fast inner loop
-                symbol_arr = arrays.get('Symbol', None)
-                sma_fast_arr = arrays.get('SMA_fast', None)
-                sma_slow_arr = arrays.get('SMA_slow', None)
-                open_arr = arrays.get('Open', None)
-                high_arr = arrays.get('High', None)
-                low_arr = arrays.get('Low', None)
-                close_arr = arrays.get('Close', None)
-                date_arr = arrays.get('Date', None)
-                index_arr = arrays.get('Index', None)
+                    # Pre-extract frequently accessed arrays for ultra-fast inner loop
+                    symbol_arr = arrays.get('Symbol', None)
+                    sma_fast_arr = arrays.get('SMA_fast', None)
+                    sma_slow_arr = arrays.get('SMA_slow', None)
+                    open_arr = arrays.get('Open', None)
+                    high_arr = arrays.get('High', None)
+                    low_arr = arrays.get('Low', None)
+                    close_arr = arrays.get('Close', None)
+                    date_arr = arrays.get('Date', None)
+                    index_arr = arrays.get('Index', None)
 
-                # Combined loop: execute previous order and generate new signal in one pass
-                for idx in range(n_rows):
-                    symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
-                    bar = BarView(
-                        open_=open_arr[idx] if open_arr is not None else None,
-                        high=high_arr[idx] if high_arr is not None else None,
-                        low=low_arr[idx] if low_arr is not None else None,
-                        close=close_arr[idx] if close_arr is not None else None,
-                        date=date_arr[idx] if date_arr is not None else None,
-                        symbol=symbol,
-                        index=index_arr[idx] if index_arr is not None else None,
-                        sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
-                        sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
-                    )
+                    # Combined loop: execute previous order and generate new signal in one pass
+                    for idx in range(n_rows):
+                        symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                        bar = BarView(
+                            open_=open_arr[idx] if open_arr is not None else None,
+                            high=high_arr[idx] if high_arr is not None else None,
+                            low=low_arr[idx] if low_arr is not None else None,
+                            close=close_arr[idx] if close_arr is not None else None,
+                            date=date_arr[idx] if date_arr is not None else None,
+                            symbol=symbol,
+                            index=index_arr[idx] if index_arr is not None else None,
+                            sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
+                            sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
+                        )
 
-                    # 1) Execute previous bar's decision for each symbol using this bar's prices
-                    if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
-                        self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
+                        # 1) Execute previous bar's decision for each symbol using this bar's prices
+                        if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
+                            self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
 
-                    # 2) Generate new signals for each symbol for this timestamp
-                    # Per-symbol warmup (counted in bars, not rows)
-                    if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
-                        warmup_count_by_symbol[symbol] += 1
-                        pending_order_by_symbol[symbol] = None
-                        bar_index_by_symbol[symbol] += 1
-                        continue
+                        # 2) Generate new signals for each symbol for this timestamp
+                        # Per-symbol warmup (counted in bars, not rows)
+                        if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
+                            warmup_count_by_symbol[symbol] += 1
+                            pending_order_by_symbol[symbol] = None
+                            bar_index_by_symbol[symbol] += 1
+                            continue
 
-                    if window_size and window_size > 0:
-                        if arrays_by_symbol is not None and symbol in arrays_by_symbol:
-                            # Use pre-extracted NumPy arrays for fast slicing
-                            sym_i = bar_index_by_symbol[symbol]
-                            start_idx = max(0, sym_i - window_size + 1)
-                            end_idx = sym_i + 1
-                            history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
-                            signal = self.strategy.check_condition(bar, history)
+                        if window_size and window_size > 0:
+                            if arrays_by_symbol is not None and symbol in arrays_by_symbol:
+                                # Use pre-extracted arrays for fast slicing
+                                sym_i = bar_index_by_symbol[symbol]
+                                start_idx = max(0, sym_i - window_size + 1)
+                                end_idx = sym_i + 1
+                                history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, list(arrays_by_symbol[symbol].keys()))
+                                signal = self.strategy.check_condition(bar, history)
+                            else:
+                                sym_i = bar_index_by_symbol[symbol]
+                                start_idx = max(0, sym_i - window_size + 1)
+                                end_idx = sym_i + 1
+                                history = HistoryView(arrays, start_idx, end_idx, columns)
+                                signal = self.strategy.check_condition(bar, history)
                         else:
-                            # Fallback: slice from full dataset (single-asset mode only)
-                            # Note: this is slower, but only active when a strategy requests history.
-                            # Use the same sequential bar index for the synthetic SINGLE symbol.
-                            sym_i = bar_index_by_symbol[symbol]
-                            start_idx = max(0, sym_i - window_size + 1)
-                            end_idx = sym_i + 1
-                            history = HistoryView(arrays, start_idx, end_idx, columns)
-                            signal = self.strategy.check_condition(bar, history)
-                    else:
-                        # Fast path: strategy reads indicators from bar attributes
-                        signal = self.strategy.check_condition(bar)
+                            # Fast path: strategy reads indicators from bar attributes
+                            signal = self.strategy.check_condition(bar)
 
-                    pending_order_by_symbol[symbol] = signal
-                    bar_index_by_symbol[symbol] += 1
+                        pending_order_by_symbol[symbol] = signal
+                        bar_index_by_symbol[symbol] += 1
+                # end for each unique date
+            elif self.data_set is not None and 'Date' in self.data_set.columns:
+                grouped = self.data_set.groupby('Date', sort=False)
+                for _, date_df in grouped:
+                    # Convert to numpy arrays once for faster access (avoid itertuples overhead)
+                    columns = date_df.columns
+                    arrays = {col: date_df[col].to_numpy(copy=False) for col in columns}
+                    # Provide a stable Index-like field for timestamp fallbacks/logging.
+                    arrays['Index'] = date_df.index.to_numpy(copy=False)
+                    n_rows = len(date_df)
+
+                    # Pre-extract frequently accessed arrays for ultra-fast inner loop
+                    symbol_arr = arrays.get('Symbol', None)
+                    sma_fast_arr = arrays.get('SMA_fast', None)
+                    sma_slow_arr = arrays.get('SMA_slow', None)
+                    open_arr = arrays.get('Open', None)
+                    high_arr = arrays.get('High', None)
+                    low_arr = arrays.get('Low', None)
+                    close_arr = arrays.get('Close', None)
+                    date_arr = arrays.get('Date', None)
+                    index_arr = arrays.get('Index', None)
+
+                    # Combined loop: execute previous order and generate new signal in one pass
+                    for idx in range(n_rows):
+                        symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                        bar = BarView(
+                            open_=open_arr[idx] if open_arr is not None else None,
+                            high=high_arr[idx] if high_arr is not None else None,
+                            low=low_arr[idx] if low_arr is not None else None,
+                            close=close_arr[idx] if close_arr is not None else None,
+                            date=date_arr[idx] if date_arr is not None else None,
+                            symbol=symbol,
+                            index=index_arr[idx] if index_arr is not None else None,
+                            sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
+                            sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
+                        )
+
+                        # 1) Execute previous bar's decision for each symbol using this bar's prices
+                        if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
+                            self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
+
+                        # 2) Generate new signals for each symbol for this timestamp
+                        # Per-symbol warmup (counted in bars, not rows)
+                        if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
+                            warmup_count_by_symbol[symbol] += 1
+                            pending_order_by_symbol[symbol] = None
+                            bar_index_by_symbol[symbol] += 1
+                            continue
+
+                        if window_size and window_size > 0:
+                            if arrays_by_symbol is not None and symbol in arrays_by_symbol:
+                                # Use pre-extracted NumPy arrays for fast slicing
+                                sym_i = bar_index_by_symbol[symbol]
+                                start_idx = max(0, sym_i - window_size + 1)
+                                end_idx = sym_i + 1
+                                history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
+                                signal = self.strategy.check_condition(bar, history)
+                            else:
+                                sym_i = bar_index_by_symbol[symbol]
+                                start_idx = max(0, sym_i - window_size + 1)
+                                end_idx = sym_i + 1
+                                history = HistoryView(arrays, start_idx, end_idx, columns)
+                                signal = self.strategy.check_condition(bar, history)
+                        else:
+                            # Fast path: strategy reads indicators from bar attributes
+                            signal = self.strategy.check_condition(bar)
+
+                        pending_order_by_symbol[symbol] = signal
+                        bar_index_by_symbol[symbol] += 1
 
         else:
             # Row-by-row processing (fast/simple, but multi-asset has intra-date ordering bias)
-            # Pre-extract numpy arrays for faster attribute access
-            columns = self.data_set.columns
-            arrays = {col: self.data_set[col].to_numpy(copy=False) for col in columns}
-            # Provide a stable Index-like field for timestamp fallbacks/logging.
-            arrays['Index'] = self.data_set.index.to_numpy(copy=False)
-            n_rows = len(self.data_set)
+            # Support either DataFrame or pre-extracted arrays.
+            if self.arrays is not None:
+                arrays = self.arrays.copy()
+                # Provide a stable Index-like field for timestamp fallbacks/logging.
+                if 'Index' not in arrays:
+                    arrays['Index'] = np.arange(len(next(iter(arrays.values()))))
+                columns = list(arrays.keys())
+                n_rows = len(next(iter(arrays.values())))
+            else:
+                columns = self.data_set.columns
+                arrays = {col: self.data_set[col].to_numpy(copy=False) for col in columns}
+                # Provide a stable Index-like field for timestamp fallbacks/logging.
+                arrays['Index'] = self.data_set.index.to_numpy(copy=False)
+                n_rows = len(self.data_set)
+
             symbol_arr = arrays.get('Symbol', None)
             sma_fast_arr = arrays.get('SMA_fast', None)
             sma_slow_arr = arrays.get('SMA_slow', None)
@@ -351,7 +454,7 @@ class BacktestEngine:
                         sym_i = bar_index_by_symbol[symbol]
                         start_idx = max(0, sym_i - window_size + 1)
                         end_idx = sym_i + 1
-                        history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, data_by_symbol[symbol].columns)
+                        history = HistoryView(arrays_by_symbol[symbol], start_idx, end_idx, list(arrays_by_symbol[symbol].keys()) if isinstance(arrays_by_symbol[symbol], dict) else columns)
                         signal = self.strategy.check_condition(bar, history)
                     else:
                         # Fallback: slice from full dataset (single-asset mode)
@@ -403,11 +506,12 @@ class BacktestEngine:
         """
         analytics = PerformanceAnalytics()
         # Pass broker.trade_log to analytics for trade statistics, and propagate GPU preference
+        data_for_analytics = self.data_set if self.data_set is not None else self.arrays
         analytics.analyze_and_plot(
-            self.portfolio, self.data_set, 
-            plot=plot, save=save, 
-            risk_free_rate=risk_free_rate, 
-            trade_log=self.broker.trade_log, 
+            self.portfolio, data_for_analytics,
+            plot=plot, save=save,
+            risk_free_rate=risk_free_rate,
+            trade_log=self.broker.trade_log,
             annualization_factor=annualization_factor,
             prefer_gpu=self.prefer_gpu
         )
