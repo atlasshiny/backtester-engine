@@ -21,10 +21,44 @@ def to_numpy(arr):
     return np.asarray(arr)
 
 
-def df_to_arrays(df):
-    """Convert a pandas DataFrame to a dict of NumPy arrays (shallow views where possible)."""
+def ensure_array(arr, xp):
+    """Ensure `arr` is an array in the array module `xp` (np or cp).
+
+    - If `arr` is already a NumPy or CuPy ndarray, preserve or convert it as needed.
+    - For Python lists or scalars, construct an `xp` array.
+    """
+    if arr is None:
+        return None
+    # If requested xp is cupy and cupy is available
+    if xp is not np and cp is not None and xp is cp:
+        if isinstance(arr, cp.ndarray):
+            return arr
+        if isinstance(arr, np.ndarray):
+            return cp.asarray(arr)
+        # fallback for lists/scalars
+        return cp.asarray(arr)
+    # xp is numpy or cupy not available
+    if isinstance(arr, np.ndarray):
+        return arr
+    if cp is not None and isinstance(arr, cp.ndarray):
+        # convert cupy -> numpy only when numpy requested
+        return cp.asnumpy(arr)
+    return np.asarray(arr)
+
+
+def df_to_arrays(df, xp=None):
+    """Convert a pandas DataFrame to a dict of arrays.
+
+    If `xp` is provided (np or cp), data will be converted to that array module.
+    Otherwise returns NumPy arrays (shallow views where possible).
+    """
     # Local import to avoid pandas requirement at module import time for some tooling
     import pandas as _pd
     if not isinstance(df, _pd.DataFrame):
         raise TypeError("df_to_arrays requires a pandas DataFrame")
-    return {col: df[col].to_numpy(copy=False) for col in df.columns}
+    xp = xp or np
+    out = {}
+    for col in df.columns:
+        arr = df[col].to_numpy(copy=False)
+        out[col] = ensure_array(arr, xp)
+    return out
