@@ -303,6 +303,12 @@ class PerformanceAnalytics:
 
         # plots
         if plot:
+            # When there are too many lines of data, use the 'fast' preset for better performance
+            if len(data_set) > 25000:
+                plt.style.use('fast')
+                # Further optimize the Agg backend for large financial arrays
+                plt.rcParams['agg.path.chunksize'] = 10000
+
             # Deduplicate equity curve: in group_by_date mode with 2 symbols, value_history is updated twice per date
             num_symbols = len(data_set['Symbol'].unique()) if 'Symbol' in data_set.columns else 1
             equity_deduplicated = equity_np[::num_symbols] if num_symbols > 1 else equity_np
