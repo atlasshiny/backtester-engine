@@ -184,14 +184,17 @@ class PerformanceAnalytics:
         symbol_arr = None
         close_arr = np.asarray([])
         date_arr = None
+        # prefer to preserve incoming array types (NumPy or CuPy) when provided
+        from .array_utils import ensure_array, select_array_module
+        xp = _select_array_module(prefer_gpu, len(portfolio.value_history), gpu_min_size)
         if isinstance(data_set, pd.DataFrame):
             symbol_arr = data_set['Symbol'].to_numpy() if 'Symbol' in data_set.columns else None
             close_arr = data_set['Close'].to_numpy() if 'Close' in data_set.columns else np.asarray([])
             date_arr = pd.to_datetime(data_set['Date']).to_numpy() if 'Date' in data_set.columns else None
         elif isinstance(data_set, dict):
-            # assume dict of arrays
-            symbol_arr = np.asarray(data_set.get('Symbol')) if data_set.get('Symbol') is not None else None
-            close_arr = np.asarray(data_set.get('Close')) if data_set.get('Close') is not None else np.asarray([])
+            # assume dict of arrays; ensure they are xp arrays when possible
+            symbol_arr = ensure_array(data_set.get('Symbol'), xp) if data_set.get('Symbol') is not None else None
+            close_arr = ensure_array(data_set.get('Close'), xp) if data_set.get('Close') is not None else ensure_array(np.asarray([]), xp)
             try:
                 date_arr = pd.to_datetime(data_set.get('Date')) if data_set.get('Date') is not None else None
             except Exception:
