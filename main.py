@@ -13,6 +13,7 @@ from backtest import BacktestEngine
 from backtest import Portfolio
 from backtest import Broker
 from backtest import TechnicalIndicators
+from backtest.array_utils import df_to_arrays
 from strategies.simple_moving_average import SimpleMovingAverage # replace with choosen strategy
 
 # follow the steps outlines in the backtest module description. 
@@ -23,10 +24,13 @@ def main():
     data_path = os.path.join('data', 'synthetic.csv')
     data_set = pd.read_csv(data_path)    
 
-    # Generate strategy indicators if needed and attach to data_set
-    # If Symbol column exists, sort by Date then Symbol (long format)
-    data_processing = TechnicalIndicators(data=data_set)
-    data_processing.data = data_processing.data.sort_values(['Date', 'Symbol']).reset_index(drop=True)
+    # Generate strategy indicators using array-based paths where possible.
+    # Convert DataFrame to arrays, let TechnicalIndicators operate on arrays,
+    # then materialize a DataFrame for the engine (engine still expects a DataFrame).
+    arrays = df_to_arrays(data_set)
+    data_processing = TechnicalIndicators(data=arrays)
+    # If DataFrame-like ordering is required, operate on DataFrame fallback
+    # only when necessary inside TechnicalIndicators.final_df().
     data_processing.simple_moving_average()
     data_set = data_processing.final_df()
 
@@ -56,13 +60,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
 
     # for debugging
-    # cProfile.run('main()', 'profile_output.txt')
-    # with open('profile_report.txt', 'w') as f:
-    #     stats = pstats.Stats('profile_output.txt', stream=f)
-    #     stats.sort_stats('cumtime').print_stats()
+    cProfile.run('main()', 'profile_output.txt')
+    with open('profile_report.txt', 'w') as f:
+        stats = pstats.Stats('profile_output.txt', stream=f)
+        stats.sort_stats('cumtime').print_stats()
 
-    # if os.path.exists('profile_output.txt'):
-    #     os.remove('profile_output.txt')
+    if os.path.exists('profile_output.txt'):
+        os.remove('profile_output.txt')
+
+    
