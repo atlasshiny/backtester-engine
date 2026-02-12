@@ -130,7 +130,20 @@ class TechnicalIndicators:
         gpu_min_size:
             Minimum number of rows required before attempting GPU acceleration in auto mode.
         """
-        self.data = data
+        # Accept either a pandas DataFrame or a dict of arrays (from df_to_arrays)
+        self.data = None
+        self.arrays = None
+        if isinstance(data, pd.DataFrame):
+            self.data = data
+        elif isinstance(data, dict):
+            # assume dict[col] -> ndarray (NumPy)
+            self.arrays = data
+        else:
+            # try to coerce to DataFrame
+            try:
+                self.data = pd.DataFrame(data)
+            except Exception:
+                raise TypeError("TechnicalIndicators expects a pandas DataFrame or dict of arrays")
         self.prefer_gpu = prefer_gpu
         self.gpu_min_size = gpu_min_size
 
@@ -162,33 +175,64 @@ class TechnicalIndicators:
         -----
         The first (window-1) rows per symbol will be NaN due to rolling warmup.
         """
-        df = self.data
-        col = column if column else df.columns[-1]
-        xp = self._xp(len(df))
+        col = column if column else (list(self.arrays.keys())[-1] if self.arrays is not None else self.data.columns[-1])
+        # prefer length from arrays or df
+        length = len(self.arrays[next(iter(self.arrays))]) if self.arrays is not None else len(self.data)
+        xp = self._xp(length)
         use_gpu = xp is not np
         rolling_mean = (lambda arr, window: _rolling_mean_xp(arr, window, xp)) if use_gpu else _rolling_mean_numpy
 
-        if 'Symbol' in df.columns:
-            symbols = df['Symbol'].values
-            prices = df[col].values.astype(float)
-            fast_ma = np.empty(len(df), dtype=float)
-            slow_ma = np.empty(len(df), dtype=float)
-            for sym in np.unique(symbols):
-                mask = symbols == sym
-                indices = np.where(mask)[0]
-                sym_prices = prices[mask]
-                sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
-                fast_vals = rolling_mean(sym_prices_xp, fast_window)
-                slow_vals = rolling_mean(sym_prices_xp, slow_window)
-                fast_ma[indices] = self._to_numpy(fast_vals)
-                slow_ma[indices] = self._to_numpy(slow_vals)
-            df['SMA_fast'] = fast_ma
-            df['SMA_slow'] = slow_ma
+        if self.arrays is not None:
+            arrays = self.arrays
+            symbols = arrays.get('Symbol', None)
+            prices = arrays[col].astype(float)
+            fast_ma = np.empty(len(prices), dtype=float)
+            slow_ma = np.empty(len(prices), dtype=float)
+            if symbols is not None:
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.nonzero(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    fast_vals = rolling_mean(sym_prices_xp, fast_window)
+                    slow_vals = rolling_mean(sym_prices_xp, slow_window)
+                    fast_ma[indices] = self._to_numpy(fast_vals)
+                    slow_ma[indices] = self._to_numpy(slow_vals)
+            else:
+                prices_xp = xp.asarray(prices, dtype=xp.float64) if use_gpu else prices
+                fast_ma = self._to_numpy(rolling_mean(prices_xp, fast_window))
+                slow_ma = self._to_numpy(rolling_mean(prices_xp, slow_window))
+            arrays['SMA_fast'] = fast_ma
+            arrays['SMA_slow'] = slow_ma
+            # keep arrays updated; materialization to DataFrame happens in final_df()
         else:
-            prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
-            df['SMA_fast'] = self._to_numpy(rolling_mean(prices, fast_window))
-            df['SMA_slow'] = self._to_numpy(rolling_mean(prices, slow_window))
-        self.data = df
+            df = self.data
+            col = column if column else df.columns[-1]
+            xp = self._xp(len(df))
+            use_gpu = xp is not np
+            rolling_mean = (lambda arr, window: _rolling_mean_xp(arr, window, xp)) if use_gpu else _rolling_mean_numpy
+
+            if 'Symbol' in df.columns:
+                symbols = df['Symbol'].values
+                prices = df[col].values.astype(float)
+                fast_ma = np.empty(len(df), dtype=float)
+                slow_ma = np.empty(len(df), dtype=float)
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.where(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    fast_vals = rolling_mean(sym_prices_xp, fast_window)
+                    slow_vals = rolling_mean(sym_prices_xp, slow_window)
+                    fast_ma[indices] = self._to_numpy(fast_vals)
+                    slow_ma[indices] = self._to_numpy(slow_vals)
+                df['SMA_fast'] = fast_ma
+                df['SMA_slow'] = slow_ma
+            else:
+                prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
+                df['SMA_fast'] = self._to_numpy(rolling_mean(prices, fast_window))
+                df['SMA_slow'] = self._to_numpy(rolling_mean(prices, slow_window))
+            self.data = df
 
     def exponential_moving_average(self, window: int = 14, column: str | None = "Close"):
         """
@@ -338,5 +382,12 @@ class TechnicalIndicators:
         self.data = df
 
     def final_df(self):
-        """Return the current DataFrame with all computed indicators."""
-        return self.data
+        """Return the current DataFrame with all computed indicators.
+
+        If the object was constructed from arrays, materialize a DataFrame from
+        the arrays before returning (this keeps backward compatibility)."""
+        if self.data is not None:
+            return self.data
+        if self.arrays is not None:
+            return pd.DataFrame(self.arrays)
+        return pd.DataFrame()
