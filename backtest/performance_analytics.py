@@ -178,19 +178,34 @@ class PerformanceAnalytics:
         print(f"Maximum Drawdown: {max_drawdown*100:.2f}%")
 
         # sharpe ratio (robust to division by zero or nan)
-        std_ret = np.std(returns_np) if len(returns_np) else float('nan')
+        if len(returns_np):
+            # Use GPU computations when `returns` is a CuPy array (has `get`)
+            if hasattr(returns, 'get'):
+                mean_ret = float(xp.mean(returns))
+                std_ret = float(xp.std(returns))
+            else:
+                mean_ret = float(np.mean(returns_np))
+                std_ret = float(np.std(returns_np))
+        else:
+            mean_ret = float('nan')
+            std_ret = float('nan')
+
         if len(returns_np) and std_ret > 0 and np.isfinite(std_ret):
-            sharpe = (np.mean(returns_np) - risk_free_rate) / std_ret * np.sqrt(annualization)
+            sharpe = (mean_ret - risk_free_rate) / std_ret * np.sqrt(annualization)
         else:
             sharpe = float('nan')
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
 
         # sortino ratio (robust to division by zero or nan)
-        downside_returns = returns_np[returns_np < 0] if len(returns_np) else np.array([])
-        if len(downside_returns) > 0:
-            downside_dev = np.std(downside_returns)
+        if len(returns_np):
+            if hasattr(returns, 'get'):
+                downside = returns[returns < 0]
+                downside_dev = float(xp.std(downside)) if downside.size else float('nan')
+            else:
+                downside = returns_np[returns_np < 0]
+                downside_dev = float(np.std(downside)) if len(downside) else float('nan')
             if downside_dev > 0 and np.isfinite(downside_dev):
-                sortino = (np.mean(returns_np) - risk_free_rate) / downside_dev * np.sqrt(annualization)
+                sortino = (mean_ret - risk_free_rate) / downside_dev * np.sqrt(annualization)
             else:
                 sortino = float('nan')
         else:
@@ -309,8 +324,27 @@ class PerformanceAnalytics:
                 # Further optimize the Agg backend for large financial arrays
                 plt.rcParams['agg.path.chunksize'] = 10000
 
-            # Deduplicate equity curve: in group_by_date mode with 2 symbols, value_history is updated twice per date
-            num_symbols = len(data_set['Symbol'].unique()) if 'Symbol' in data_set.columns else 1
+            # Prepare NumPy arrays for faster vectorized operations and
+            # deduplicate equity curve: in group_by_date mode with N symbols,
+            # `value_history` is updated N times per date.
+            if isinstance(data_set, pd.DataFrame):
+                symbol_arr = data_set['Symbol'].to_numpy() if 'Symbol' in data_set.columns else None
+                close_arr = data_set['Close'].to_numpy() if 'Close' in data_set.columns else np.asarray([])
+                date_arr = pd.to_datetime(data_set['Date']).to_numpy() if 'Date' in data_set.columns else None
+                num_symbols = int(np.unique(symbol_arr).size) if symbol_arr is not None else 1
+            else:
+                # Fallback: treat dataset as array-like or structured array
+                try:
+                    symbol_arr = np.asarray(data_set['Symbol'])
+                except Exception:
+                    symbol_arr = None
+                try:
+                    close_arr = np.asarray(data_set['Close'])
+                except Exception:
+                    close_arr = np.asarray(data_set)
+                date_arr = None
+                num_symbols = 1
+
             equity_deduplicated = equity_np[::num_symbols] if num_symbols > 1 else equity_np
 
             fig, axes = plt.subplots(4, 2, figsize=(20, 16))
@@ -365,10 +399,10 @@ class PerformanceAnalytics:
 
             # 4) Monthly returns heatmap
             if len(equity_deduplicated) > 1:
-                # Create a DataFrame for value history with date index
-                if 'Date' in data_set.columns:
-                    # Deduplicate dates to match equity_deduplicated
-                    dates = data_set['Date'].values[::num_symbols] if num_symbols > 1 else data_set['Date'].values
+                # Use the precomputed `date_arr` when available to avoid repeated
+                # pandas indexing and conversions.
+                if date_arr is not None:
+                    dates = date_arr[::num_symbols] if num_symbols > 1 else date_arr
                     dates = pd.to_datetime(dates)
                     # Align lengths
                     min_len = min(len(dates), len(equity_deduplicated))
@@ -413,13 +447,14 @@ class PerformanceAnalytics:
                     ax6.spines['top'].set_visible(False)
                     ax6.spines['right'].set_visible(False)
 
-            # 7) Price vs Equity (dual axis)
-            if 'Symbol' in data_set.columns:
-                first_symbol = data_set['Symbol'].iloc[0]
-                close_series = data_set[data_set['Symbol'] == first_symbol]['Close'].values
+            # 7) Price vs Equity (dual axis) - work with precomputed arrays
+            if symbol_arr is not None and symbol_arr.size > 0:
+                first_symbol = symbol_arr[0]
+                mask = (symbol_arr == first_symbol)
+                close_series = close_arr[mask]
                 title_suffix = f" ({first_symbol})"
             else:
-                close_series = data_set['Close'].values
+                close_series = close_arr
                 title_suffix = ""
             # Resample close_series to match equity_deduplicated length
             if len(close_series) != len(equity_deduplicated):
