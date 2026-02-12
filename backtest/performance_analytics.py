@@ -130,8 +130,11 @@ class PerformanceAnalytics:
                 return 252.0
 
         if annualization_factor is None:
+            # Support either a pandas DataFrame or a dict of arrays for data_set
             if isinstance(data_set, pd.DataFrame) and 'Date' in data_set.columns:
                 annualization = _infer_annualization(data_set['Date'].values)
+            elif isinstance(data_set, dict) and 'Date' in data_set:
+                annualization = _infer_annualization(data_set['Date'])
             else:
                 annualization = 252.0
         else:
@@ -176,6 +179,23 @@ class PerformanceAnalytics:
             drawdowns = xp.asarray([], dtype=xp.float64)
             max_drawdown = float('nan')
         print(f"Maximum Drawdown: {max_drawdown*100:.2f}%")
+
+        # Prepare arrays from data_set early to avoid repeated pandas indexing later.
+        symbol_arr = None
+        close_arr = np.asarray([])
+        date_arr = None
+        if isinstance(data_set, pd.DataFrame):
+            symbol_arr = data_set['Symbol'].to_numpy() if 'Symbol' in data_set.columns else None
+            close_arr = data_set['Close'].to_numpy() if 'Close' in data_set.columns else np.asarray([])
+            date_arr = pd.to_datetime(data_set['Date']).to_numpy() if 'Date' in data_set.columns else None
+        elif isinstance(data_set, dict):
+            # assume dict of arrays
+            symbol_arr = np.asarray(data_set.get('Symbol')) if data_set.get('Symbol') is not None else None
+            close_arr = np.asarray(data_set.get('Close')) if data_set.get('Close') is not None else np.asarray([])
+            try:
+                date_arr = pd.to_datetime(data_set.get('Date')) if data_set.get('Date') is not None else None
+            except Exception:
+                date_arr = None
 
         # sharpe ratio (robust to division by zero or nan)
         if len(returns_np):
