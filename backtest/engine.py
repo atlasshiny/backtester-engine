@@ -340,9 +340,11 @@ class BacktestEngine:
             elif self.data_set is not None and 'Date' in self.data_set.columns:
                 grouped = self.data_set.groupby('Date', sort=False)
                 for _, date_df in grouped:
-                    # Convert to numpy arrays once for faster access (avoid itertuples overhead)
-                    columns = date_df.columns
-                    arrays = {col: date_df[col].to_numpy(copy=False) for col in columns}
+                    # Convert the whole DataFrame to a single 2D ndarray once
+                    # and create column views to avoid per-column allocations.
+                    columns = list(date_df.columns)
+                    df_arr = date_df.to_numpy(copy=False)
+                    arrays = {col: df_arr[:, i] for i, col in enumerate(columns)}
                     # Provide a stable Index-like field for timestamp fallbacks/logging.
                     arrays['Index'] = date_df.index.to_numpy(copy=False)
                     n_rows = len(date_df)
@@ -417,8 +419,10 @@ class BacktestEngine:
                 columns = list(arrays.keys())
                 n_rows = len(next(iter(arrays.values())))
             else:
-                columns = self.data_set.columns
-                arrays = {col: self.data_set[col].to_numpy(copy=False) for col in columns}
+                # Convert full DataFrame to a single 2D ndarray and slice into column views.
+                columns = list(self.data_set.columns)
+                df_arr = self.data_set.to_numpy(copy=False)
+                arrays = {col: df_arr[:, i] for i, col in enumerate(columns)}
                 # Provide a stable Index-like field for timestamp fallbacks/logging.
                 arrays['Index'] = self.data_set.index.to_numpy(copy=False)
                 n_rows = len(self.data_set)
