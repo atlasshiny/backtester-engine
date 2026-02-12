@@ -164,7 +164,12 @@ class PerformanceAnalytics:
 
         # drawdown
         if equity.size:
-            running_max = xp.maximum.accumulate(equity)
+            # running_max = xp.maximum.accumulate(equity) can't use cupy because feature hasn't been added yet from numpy
+            if hasattr(equity, 'get'):  # Use this to check if it's a CuPy array, else continute with standard numpy
+                running_max = np.maximum.accumulate(equity.get()) # Move to CPU, calculate, move back
+                running_max = xp.asarray(running_max) 
+            else:
+                running_max = xp.maximum.accumulate(equity)
             drawdowns = (running_max - equity) / running_max
             max_drawdown = float(_to_numpy(drawdowns).max())
         else:
