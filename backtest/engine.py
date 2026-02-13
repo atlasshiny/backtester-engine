@@ -39,6 +39,7 @@ from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
 from .broker import Broker
 from .event_view import HistoryView
+from .indicator import TechnicalIndicators
 
 try:
     import cupy as cp  # type: ignore
@@ -135,7 +136,7 @@ class BacktestEngine:
         This parameter is passed to TechnicalIndicators and PerformanceAnalytics.
     """
 
-    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker: Broker, data_set: pd.DataFrame, warm_up: int = 0, group_by_date: bool = False, prefer_gpu: Literal["auto", True, False] = "auto"):
+    def __init__(self, strategy: Strategy, portfolio: Portfolio, broker: Broker, data_set: pd.DataFrame, warm_up: int = 0, group_by_date: bool = False, prefer_gpu: Literal["auto", True, False] = "auto",  precalculate: bool = False):
         """
         Initialize the BacktestEngine.
 
@@ -185,6 +186,55 @@ class BacktestEngine:
                 "Install via: pip install cupy-cuda12x\n"
                 "Or set prefer_gpu='auto' or False to use CPU."
             )
+
+        # Optionally precompute indicators at construction time to avoid
+        # computing them inside the tight run loop.
+        if precalculate:
+            ti_data = self.arrays if self.arrays is not None else self.data_set
+            ti = TechnicalIndicators(ti_data, prefer_gpu=self.prefer_gpu, gpu_min_size=self.gpu_min_size)
+            # Precompute a common set of indicators used by strategies.
+            # This can be extended or made configurable if needed.
+            try:
+                ti.simple_moving_average()
+            except Exception:
+                pass
+            try:
+                ti.exponential_moving_average()
+            except Exception:
+                pass
+            try:
+                ti.rsi()
+            except Exception:
+                pass
+            try:
+                ti.bollinger_bands()
+            except Exception:
+                pass
+            # Update engine's data sources with computed indicators
+            if ti.arrays is not None:
+                self.arrays = ti.arrays
+                self.data_set = None
+            else:
+                self.data_set = ti.data
+                self.arrays = None
+
+            # If the strategy declares required_indicators, assert they exist
+            required = getattr(self.strategy, 'required_indicators', None)
+            if required:
+                missing = []
+                source = self.arrays if self.arrays is not None else self.data_set
+                for col in required:
+                    if source is None:
+                        missing.append(col)
+                    elif isinstance(source, dict):
+                        if col not in source:
+                            missing.append(col)
+                    else:
+                        # pandas DataFrame
+                        if col not in source.columns:
+                            missing.append(col)
+                if missing:
+                    raise RuntimeError(f"Precalculation requested but required indicators missing: {missing}")
 
     def set_gpu_policy(self, prefer_gpu: Literal["auto", True, False], gpu_min_size: int | None = None):
         """Set the engine-wide GPU preference.
@@ -250,8 +300,9 @@ class BacktestEngine:
                 symbols = self.arrays['Symbol']
                 arrays_by_symbol = {}
                 for sym in np.unique(symbols):
-                    mask = symbols == sym
-                    arrays_by_symbol[sym] = {col: arr[mask] for col, arr in self.arrays.items()}
+                    # use integer indices for slicing to avoid boolean mask allocations
+                    indices = np.nonzero(symbols == sym)[0]
+                    arrays_by_symbol[sym] = {col: arr[indices] for col, arr in self.arrays.items()}
             elif self.data_set is not None and 'Symbol' in self.data_set.columns:
                 data_by_symbol = {sym: grp.reset_index(drop=True) for sym, grp in self.data_set.groupby('Symbol', sort=False)}
                 # Pre-extract arrays per symbol for fast history slicing
@@ -263,45 +314,57 @@ class BacktestEngine:
         # Optionally bundle processing by timestamp to avoid intra-date ordering bias in long-format data.
         # This makes all symbols at the same Date behave as "simultaneous".
         if self.group_by_date:
-            # Support DataFrame grouping or dict-of-arrays grouping by Date
+            # Ensure everything is a dict of raw arrays once (fast path)
+            if self.arrays is None and self.data_set is not None:
+                # Convert DataFrame to per-column NumPy views (no copies)
+                cols = list(self.data_set.columns)
+                df_arr = self.data_set.to_numpy(copy=False)
+                self.arrays = {col: df_arr[:, i] for i, col in enumerate(cols)}
+                self.arrays['Index'] = self.data_set.index.to_numpy(copy=False)
+
+            # If we still don't have Date, fall back to existing DataFrame grouping
             if self.arrays is not None and 'Date' in self.arrays:
                 dates = self.arrays['Date']
-                # preserve first-seen order of unique dates
-                uniq, first_idx = np.unique(dates, return_index=True)
-                order = np.argsort(first_idx)
-                uniq_dates = uniq[order]
-                for d in uniq_dates:
-                    mask = dates == d
-                    arrays = {col: arr[mask] for col, arr in self.arrays.items()}
-                    columns = list(arrays.keys())
-                    # Provide a stable Index-like field for timestamp fallbacks/logging.
-                    arrays['Index'] = np.nonzero(mask)[0]
-                    n_rows = len(next(iter(arrays.values())))
+                # Find group boundaries (first index of each unique date)
+                _, first_indices = np.unique(dates, return_index=True)
+                group_boundaries = np.sort(first_indices)
+                group_boundaries = np.append(group_boundaries, len(dates))
+
+                # Loop over date batches using integer slices/views
+                for gi in range(len(group_boundaries) - 1):
+                    start = int(group_boundaries[gi])
+                    end = int(group_boundaries[gi + 1])
+                    # date_batch is a view into the full arrays (O(1) slicing)
+                    date_batch = {col: arr[start:end] for col, arr in self.arrays.items()}
+
+                    columns = list(date_batch.keys())
+                    date_batch['Index'] = np.arange(start, end)
+                    n_rows = end - start
 
                     # Pre-extract frequently accessed arrays for ultra-fast inner loop
-                    symbol_arr = arrays.get('Symbol', None)
-                    sma_fast_arr = arrays.get('SMA_fast', None)
-                    sma_slow_arr = arrays.get('SMA_slow', None)
-                    open_arr = arrays.get('Open', None)
-                    high_arr = arrays.get('High', None)
-                    low_arr = arrays.get('Low', None)
-                    close_arr = arrays.get('Close', None)
-                    date_arr = arrays.get('Date', None)
-                    index_arr = arrays.get('Index', None)
+                    symbol_arr = date_batch.get('Symbol', None)
+                    sma_fast_arr = date_batch.get('SMA_fast', None)
+                    sma_slow_arr = date_batch.get('SMA_slow', None)
+                    open_arr = date_batch.get('Open', None)
+                    high_arr = date_batch.get('High', None)
+                    low_arr = date_batch.get('Low', None)
+                    close_arr = date_batch.get('Close', None)
+                    date_arr = date_batch.get('Date', None)
+                    index_arr = date_batch.get('Index', None)
 
                     # Combined loop: execute previous order and generate new signal in one pass
-                    for idx in range(n_rows):
-                        symbol = symbol_arr[idx] if symbol_arr is not None else 'SINGLE'
+                    for local_idx in range(n_rows):
+                        symbol = symbol_arr[local_idx] if symbol_arr is not None else 'SINGLE'
                         bar = BarView(
-                            open_=open_arr[idx] if open_arr is not None else None,
-                            high=high_arr[idx] if high_arr is not None else None,
-                            low=low_arr[idx] if low_arr is not None else None,
-                            close=close_arr[idx] if close_arr is not None else None,
-                            date=date_arr[idx] if date_arr is not None else None,
+                            open_=open_arr[local_idx] if open_arr is not None else None,
+                            high=high_arr[local_idx] if high_arr is not None else None,
+                            low=low_arr[local_idx] if low_arr is not None else None,
+                            close=close_arr[local_idx] if close_arr is not None else None,
+                            date=date_arr[local_idx] if date_arr is not None else None,
                             symbol=symbol,
-                            index=index_arr[idx] if index_arr is not None else None,
-                            sma_fast=sma_fast_arr[idx] if sma_fast_arr is not None else None,
-                            sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
+                            index=index_arr[local_idx] if index_arr is not None else None,
+                            sma_fast=sma_fast_arr[local_idx] if sma_fast_arr is not None else None,
+                            sma_slow=sma_slow_arr[local_idx] if sma_slow_arr is not None else None,
                         )
 
                         # 1) Execute previous bar's decision for each symbol using this bar's prices
@@ -328,7 +391,7 @@ class BacktestEngine:
                                 sym_i = bar_index_by_symbol[symbol]
                                 start_idx = max(0, sym_i - window_size + 1)
                                 end_idx = sym_i + 1
-                                history = HistoryView(arrays, start_idx, end_idx, columns)
+                                history = HistoryView(date_batch, start_idx, end_idx, columns)
                                 signal = self.strategy.check_condition(bar, history)
                         else:
                             # Fast path: strategy reads indicators from bar attributes
@@ -338,6 +401,7 @@ class BacktestEngine:
                         bar_index_by_symbol[symbol] += 1
                 # end for each unique date
             elif self.data_set is not None and 'Date' in self.data_set.columns:
+                # Fallback: group via DataFrame as before (rare path)
                 grouped = self.data_set.groupby('Date', sort=False)
                 for _, date_df in grouped:
                     # Convert the whole DataFrame to a single 2D ndarray once
