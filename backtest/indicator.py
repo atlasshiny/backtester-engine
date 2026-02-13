@@ -146,6 +146,8 @@ class TechnicalIndicators:
                 raise TypeError("TechnicalIndicators expects a pandas DataFrame or dict of arrays")
         self.prefer_gpu = prefer_gpu
         self.gpu_min_size = gpu_min_size
+        # Track which indicator methods have been executed on this instance
+        self._called_methods: set[str] = set()
 
     @staticmethod
     def _to_numpy(arr):
@@ -182,6 +184,8 @@ class TechnicalIndicators:
         use_gpu = xp is not np
         rolling_mean = (lambda arr, window: _rolling_mean_xp(arr, window, xp)) if use_gpu else _rolling_mean_numpy
 
+        # record that this precompute ran
+        self._called_methods.add('simple_moving_average')
         if self.arrays is not None:
             arrays = self.arrays
             symbols = arrays.get('Symbol', None)
@@ -233,6 +237,10 @@ class TechnicalIndicators:
                 df['SMA_fast'] = self._to_numpy(rolling_mean(prices, fast_window))
                 df['SMA_slow'] = self._to_numpy(rolling_mean(prices, slow_window))
             self.data = df
+    
+        def get_called_methods(self) -> set:
+            """Return the set of indicator method names that have been executed on this instance."""
+            return set(self._called_methods)
 
     def exponential_moving_average(self, window: int = 14, column: str | None = "Close"):
         """
@@ -272,6 +280,8 @@ class TechnicalIndicators:
                 result[i] = alpha * arr_xp[i] + (1 - alpha) * result[i-1]
             return result
 
+        # record execution
+        self._called_methods.add('exponential_moving_average')
         ema_out = np.empty(len(df), dtype=float)
         if 'Symbol' in df.columns:
             symbols = df['Symbol'].values
@@ -314,6 +324,8 @@ class TechnicalIndicators:
         use_gpu = xp is not np
         rolling_mean = (lambda arr, win: _rolling_mean_xp(arr, win, xp)) if use_gpu else _rolling_mean_numpy
 
+        # record execution
+        self._called_methods.add('rsi')
         if 'Symbol' in df.columns:
             symbols = df['Symbol'].values
             prices = df[col].values.astype(float)
@@ -353,6 +365,8 @@ class TechnicalIndicators:
         rolling_mean = (lambda arr, win: _rolling_mean_xp(arr, win, xp)) if use_gpu else _rolling_mean_numpy
         rolling_std = (lambda arr, win: _rolling_std_xp(arr, win, xp)) if use_gpu else _rolling_std_numpy
 
+        # record execution
+        self._called_methods.add('bollinger_bands')
         if 'Symbol' in df.columns:
             symbols = df['Symbol'].values
             prices = df[col].values.astype(float)
