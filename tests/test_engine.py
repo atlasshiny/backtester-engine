@@ -73,5 +73,25 @@ class TestEngine(unittest.TestCase):
         engine.run()
         self.assertTrue(all(t['symbol'] == 'SINGLE' for t in broker.trade_log if t['qty'] > 0))
 
+    def test_run_with_monte_carlo_mode(self):
+        df = self.make_single_asset_df()
+        strat = DummyStrategy()
+        port = Portfolio(100)
+        broker = Broker(port)
+        engine = BacktestEngine(strat, port, broker, df, warm_up=0, group_by_date=False)
+
+        stats = engine.run(
+            monte_carlo=True,
+            monte_carlo_sim_amount=5,
+            monte_carlo_change_pct=0.01,
+            monte_carlo_seed=42,
+            monte_carlo_plot=False,
+        )
+
+        self.assertIsInstance(stats, dict)
+        self.assertEqual(stats.get('count'), 5)
+        self.assertTrue(hasattr(engine, 'monte_carlo_results'))
+        self.assertEqual(len(engine.monte_carlo_results), 5)
+
 if __name__ == "__main__":
     unittest.main()
