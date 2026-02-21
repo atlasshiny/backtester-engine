@@ -38,3 +38,4 @@ from .performance_analytics import PerformanceAnalytics
 from .order import Order
 from .position import Position
 from .indicator import TechnicalIndicators
+from .monte_carlo import MonteCarloSim
