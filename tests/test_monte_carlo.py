@@ -4,7 +4,7 @@ matplotlib.use('Agg')
 from pathlib import Path
 import pandas as pd
 
-from simulations.monte_carlo import MonteCarloSim
+from backtest.monte_carlo import MonteCarloSim
 
 
 class SimplePortfolio:
