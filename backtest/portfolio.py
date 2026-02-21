@@ -128,3 +128,13 @@ class Portfolio:
             return self.cash
         else:
             return self.cash + sum(pos.qty * price for pos in self.positions.values())
+
+    def reset(self):
+        """Reset portfolio to its initial state.
+        
+        Clears cash deviations, all positions, and value history.
+        Useful for running multiple backtests sequentially without creating new objects.
+        """
+        self.cash = self.initial_cash
+        self.positions = {}
+        self.value_history = []

@@ -166,3 +166,11 @@ class Broker:
                     self.log_trade(side=side, qty=0, symbol=symbol, price=None, commission=0.0, slippage=self.slippage, comment="Insufficient Position", timestamp=timestamp, order_type=order_type, limit_price=limit_price)
         self.portfolio.update_value_history(self.last_prices)
 
+    def reset(self):
+        """Reset broker state for a clean backtest run.
+        
+        Clears trade log and last-known prices, but preserves portfolio reference.
+        """
+        self.trade_log = []
+        self.last_prices = {}
+
