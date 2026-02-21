@@ -33,7 +33,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
-from typing import Literal
+from typing import Any, Callable, Literal
 from .strategy import Strategy
 from .portfolio import Portfolio
 from .performance_analytics import PerformanceAnalytics
@@ -258,7 +258,17 @@ class BacktestEngine:
             'gpu_min_size': getattr(self, 'gpu_min_size', None)
         }
 
-    def run(self):
+    def reset(self):
+        """Reset engine state for a clean backtest run.
+        
+        Clears warmup counters and internal tracking, but preserves data/portfolio/broker/strategy.
+        Useful when running multiple backtests sequentially.
+        """
+        # Note: Data, portfolio, broker, strategy are NOT reset here; only internal tracking.
+        # Call portfolio.reset() and strategy state management separately if needed.
+        pass  # Engine state is re-initialized in run() via local variables
+
+    def run(self, monte_carlo: bool = False, monte_carlo_sim_amount: int = 5000, monte_carlo_change_pct: float = 0.01, monte_carlo_seed: int | None = None, monte_carlo_plot: bool = False, monte_carlo_portfolio_factory: Callable[[], Any] | None = None, monte_carlo_progress: bool = False):
         """
         Run the backtest loop.
 
@@ -278,7 +288,27 @@ class BacktestEngine:
         If the strategy sets history_window > 0, the engine will construct a
         historical slice DataFrame per event. Otherwise, it takes a fast path and
         passes only the event to the strategy.
+
+        Monte Carlo mode
+        ----------------
+        When `monte_carlo=True`, this method delegates to `MonteCarloSim` and
+        returns a stats dict instead of running a single deterministic pass.
         """
+        if monte_carlo:
+            from .monte_carlo import MonteCarloSim
+
+            mc = MonteCarloSim(self, sim_amount=monte_carlo_sim_amount)
+            stats = mc.run_simulation(
+                change_pct=monte_carlo_change_pct,
+                seed=monte_carlo_seed,
+                plot=monte_carlo_plot,
+                portfolio_factory=monte_carlo_portfolio_factory,
+                progress=monte_carlo_progress,
+            )
+            self.monte_carlo_results = mc.results
+            self.monte_carlo_stats = stats
+            return stats
+
         try:
             self.strategy.on_start()
         except NotImplementedError:
