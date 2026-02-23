@@ -7,7 +7,7 @@ import seaborn as sns
 from typing import Literal
 from numba import njit
 
-from .array_utils import ensure_array
+from . import array_utils
 
 try:  # Optional GPU acceleration
     import cupy as cp  # type: ignore
@@ -145,7 +145,7 @@ class PerformanceAnalytics:
 
         # convert value history to chosen array module for calculations
         # Use ensure_array to avoid attempting to move object/string arrays to CuPy
-        vh = ensure_array(portfolio.value_history, xp)
+        vh = array_utils.ensure_array(portfolio.value_history, xp)
         equity = xp.asarray(vh, dtype=xp.float64)
         equity_np = _to_numpy(equity)
         if equity.size >= 2:
@@ -189,7 +189,6 @@ class PerformanceAnalytics:
         close_arr = np.asarray([])
         date_arr = None
         # prefer to preserve incoming array types (NumPy or CuPy) when provided
-        from .array_utils import ensure_array, select_array_module
         xp = _select_array_module(prefer_gpu, len(portfolio.value_history), gpu_min_size)
         if isinstance(data_set, pd.DataFrame):
             symbol_arr = data_set['Symbol'].to_numpy() if 'Symbol' in data_set.columns else None
@@ -197,8 +196,8 @@ class PerformanceAnalytics:
             date_arr = pd.to_datetime(data_set['Date']).to_numpy() if 'Date' in data_set.columns else None
         elif isinstance(data_set, dict):
             # assume dict of arrays; ensure they are xp arrays when possible
-            symbol_arr = ensure_array(data_set.get('Symbol'), xp) if data_set.get('Symbol') is not None else None
-            close_arr = ensure_array(data_set.get('Close'), xp) if data_set.get('Close') is not None else ensure_array(np.asarray([]), xp)
+            symbol_arr = array_utils.ensure_array(data_set.get('Symbol'), xp) if data_set.get('Symbol') is not None else None
+            close_arr = array_utils.ensure_array(data_set.get('Close'), xp) if data_set.get('Close') is not None else array_utils.ensure_array(np.asarray([]), xp)
             try:
                 date_arr = pd.to_datetime(data_set.get('Date')) if data_set.get('Date') is not None else None
             except Exception:
@@ -245,9 +244,12 @@ class PerformanceAnalytics:
         # trade statistics
         trades = pd.DataFrame(trade_log) if trade_log is not None else pd.DataFrame()
         if not trades.empty:
-            # Work with numpy arrays for faster processing
-            sides = trades['side'].values if 'side' in trades.columns else np.array([])
-            commissions = trades['commission'].fillna(0.0).values if 'commission' in trades.columns else np.array([])
+            # Work with normalized arrays for robust processing
+            if 'side' in trades.columns:
+                sides = trades['side'].astype(str).str.upper().str.strip().values
+            else:
+                sides = np.array([])
+            commissions = pd.to_numeric(trades['commission'], errors='coerce').fillna(0.0).to_numpy(dtype=float) if 'commission' in trades.columns else np.array([])
             
             total_trades = int(np.sum(np.isin(sides, ['BUY', 'SELL']))) if len(sides) else 0
             total_commission = float(np.sum(commissions)) if len(commissions) else 0.0
@@ -264,14 +266,27 @@ class PerformanceAnalytics:
             open_trades_by_symbol = {} # Stores lists of BUY dicts
             for trade_dict in trade_log:
                 sym = trade_dict.get('symbol')
-                side = trade_dict.get('side')
-                qty_to_match = trade_dict.get('qty', 0)
-                if sym is None or qty_to_match <= 0 or trade_dict.get('price') is None:
+                side = str(trade_dict.get('side', '')).upper().strip()
+                try:
+                    qty_to_match = float(trade_dict.get('qty', 0) or 0)
+                except Exception:
+                    qty_to_match = 0.0
+                try:
+                    trade_price = float(trade_dict.get('price')) if trade_dict.get('price') is not None else None
+                except Exception:
+                    trade_price = None
+
+                if sym is None or qty_to_match <= 0 or trade_price is None:
                     continue
                 if side == 'BUY':
                     # Add to the queue for this symbol; store original qty for
                     # proportional commission allocation across partial fills.
                     entry_copy = trade_dict.copy()
+                    try:
+                        entry_copy['qty'] = float(entry_copy.get('qty', 0) or 0)
+                    except Exception:
+                        entry_copy['qty'] = 0.0
+                    entry_copy['price'] = trade_price
                     entry_copy['_original_qty'] = entry_copy['qty']
                     open_trades_by_symbol.setdefault(sym, []).append(entry_copy)
                 elif side == 'SELL':
@@ -286,8 +301,8 @@ class PerformanceAnalytics:
                         # ORIGINAL quantities so partial fills don't double-count.
                         original_entry_qty = entry.get('_original_qty', entry['qty'])
                         share_of_entry = matched_qty / original_entry_qty
-                        share_of_exit = matched_qty / trade_dict['qty']
-                        gross_pnl = (trade_dict['price'] - entry['price']) * matched_qty
+                        share_of_exit = matched_qty / float(trade_dict.get('qty', matched_qty) or matched_qty)
+                        gross_pnl = (trade_price - float(entry['price'])) * matched_qty
                         entry_comm = float(entry.get('commission', 0.0) or 0.0) * share_of_entry
                         exit_comm = float(trade_dict.get('commission', 0.0) or 0.0) * share_of_exit
                         net_pnl = gross_pnl - entry_comm - exit_comm
@@ -309,14 +324,22 @@ class PerformanceAnalytics:
             net_pnls = np.array([tp['net_pnl'] for tp in trade_pairs], dtype=float)
             wins = net_pnls[net_pnls > 0]
             losses = net_pnls[net_pnls < 0]
+            breakeven = net_pnls[net_pnls == 0]
 
-            win_rate = (len(wins) / len(net_pnls)) * 100
-            avg_win = float(np.mean(wins)) if len(wins) else float('nan')
-            avg_loss = float(np.mean(losses)) if len(losses) else float('nan')
+            # Use resolved trades (wins+losses) as denominator to avoid distortions from breakeven-only logs.
+            resolved_count = len(wins) + len(losses)
+            win_rate = (len(wins) / resolved_count) * 100 if resolved_count > 0 else 0.0
+            avg_win = float(np.mean(wins)) if len(wins) else 0.0
+            avg_loss = float(np.mean(losses)) if len(losses) else 0.0
 
             gross_profit = float(np.sum(wins)) if len(wins) else 0.0
             gross_loss = float(np.sum(losses)) if len(losses) else 0.0
-            profit_factor = (gross_profit / abs(gross_loss)) if gross_loss < 0 else float('nan')
+            if gross_loss < 0:
+                profit_factor = (gross_profit / abs(gross_loss))
+            elif gross_profit > 0:
+                profit_factor = float('inf')
+            else:
+                profit_factor = 0.0
             expectancy = float(np.mean(net_pnls)) if len(net_pnls) else float('nan')
 
             # streaks - optimized with Numba
@@ -333,6 +356,8 @@ class PerformanceAnalytics:
             print(f"Total Commission: {total_commission:.2f}")
             print(f"Max Consecutive Wins: {max_consec_wins}")
             print(f"Max Consecutive Losses: {max_consec_losses}")
+            if len(breakeven):
+                print(f"Breakeven Trades: {len(breakeven)}")
 
             # holding time (requires timestamps) - use NumPy for speed
             if trade_pairs:
