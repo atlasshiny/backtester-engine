@@ -31,12 +31,27 @@ def ensure_array(arr, xp):
         return None
     # If requested xp is cupy and cupy is available
     if xp is not np and cp is not None and xp is cp:
+        # If it's already a CuPy array, return as-is
         if isinstance(arr, cp.ndarray):
             return arr
+        # If it's a NumPy array, inspect dtype. CuPy does not support
+        # object/string dtypes reliably; for those, keep NumPy arrays.
         if isinstance(arr, np.ndarray):
-            return cp.asarray(arr)
-        # fallback for lists/scalars
-        return cp.asarray(arr)
+            # dtype.kind: 'O' object, 'U' unicode, 'S' bytes, numeric kinds include 'i','u','f'
+            if arr.dtype.kind in ('O', 'U', 'S') or not np.issubdtype(arr.dtype, np.number):
+                return arr
+            try:
+                return cp.asarray(arr)
+            except Exception:
+                return arr
+        # For lists/scalars: convert to NumPy first, then decide
+        arr_np = np.asarray(arr)
+        if arr_np.dtype.kind in ('O', 'U', 'S') or not np.issubdtype(arr_np.dtype, np.number):
+            return arr_np
+        try:
+            return cp.asarray(arr_np)
+        except Exception:
+            return arr_np
     # xp is numpy or cupy not available
     if isinstance(arr, np.ndarray):
         return arr
