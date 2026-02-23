@@ -255,10 +255,10 @@ class TechnicalIndicators:
         Adds column:
         - EMA
         """
-        df = self.data
-        col = column if column else df.columns[-1]
+        col = column if column else (list(self.arrays.keys())[-1] if self.arrays is not None else self.data.columns[-1])
+        length = len(self.arrays[next(iter(self.arrays))]) if self.arrays is not None else len(self.data)
         alpha = 2.0 / (window + 1.0)
-        xp = self._xp(len(df))
+        xp = self._xp(length)
         use_gpu = xp is not np
 
         @njit
@@ -282,28 +282,54 @@ class TechnicalIndicators:
 
         # record execution
         self._called_methods.add('exponential_moving_average')
-        ema_out = np.empty(len(df), dtype=float)
-        if 'Symbol' in df.columns:
-            symbols = df['Symbol'].values
-            prices = df[col].values.astype(float)
-            for sym in np.unique(symbols):
-                mask = symbols == sym
-                indices = np.where(mask)[0]
-                sym_prices = prices[mask]
-                if use_gpu:
-                    ema_vals = _ema_xp(xp.asarray(sym_prices, dtype=xp.float64))
-                else:
-                    ema_vals = _ema_numpy(sym_prices, alpha)
-                ema_out[indices] = self._to_numpy(ema_vals)
-        else:
-            prices = df[col].values.astype(float)
-            if use_gpu:
-                ema_vals = _ema_xp(xp.asarray(prices, dtype=xp.float64))
+
+        if self.arrays is not None:
+            arrays = self.arrays
+            symbols = arrays.get('Symbol', None)
+            prices = arrays[col].astype(float)
+            ema_out = np.empty(len(prices), dtype=float)
+            if symbols is not None:
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.nonzero(mask)[0]
+                    sym_prices = prices[mask]
+                    if use_gpu:
+                        ema_vals = _ema_xp(xp.asarray(sym_prices, dtype=xp.float64))
+                    else:
+                        ema_vals = _ema_numpy(sym_prices, alpha)
+                    ema_out[indices] = self._to_numpy(ema_vals)
             else:
-                ema_vals = _ema_numpy(prices, alpha)
-            ema_out = self._to_numpy(ema_vals)
-        df['EMA'] = ema_out
-        self.data = df
+                if use_gpu:
+                    ema_vals = _ema_xp(xp.asarray(prices, dtype=xp.float64))
+                else:
+                    ema_vals = _ema_numpy(prices, alpha)
+                ema_out = self._to_numpy(ema_vals)
+            arrays['EMA'] = ema_out
+        else:
+            df = self.data
+            col = column if column else df.columns[-1]
+            ema_out = np.empty(len(df), dtype=float)
+            if 'Symbol' in df.columns:
+                symbols = df['Symbol'].values
+                prices = df[col].values.astype(float)
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.where(mask)[0]
+                    sym_prices = prices[mask]
+                    if use_gpu:
+                        ema_vals = _ema_xp(xp.asarray(sym_prices, dtype=xp.float64))
+                    else:
+                        ema_vals = _ema_numpy(sym_prices, alpha)
+                    ema_out[indices] = self._to_numpy(ema_vals)
+            else:
+                prices = df[col].values.astype(float)
+                if use_gpu:
+                    ema_vals = _ema_xp(xp.asarray(prices, dtype=xp.float64))
+                else:
+                    ema_vals = _ema_numpy(prices, alpha)
+                ema_out = self._to_numpy(ema_vals)
+            df['EMA'] = ema_out
+            self.data = df
 
     def rsi(self, window: int = 14, column: str | None = "Close"):
         """
@@ -318,30 +344,51 @@ class TechnicalIndicators:
         Adds column:
         - RSI
         """
-        df = self.data
-        col = column if column else df.columns[-1]
-        xp = self._xp(len(df))
+        col = column if column else (list(self.arrays.keys())[-1] if self.arrays is not None else self.data.columns[-1])
+        length = len(self.arrays[next(iter(self.arrays))]) if self.arrays is not None else len(self.data)
+        xp = self._xp(length)
         use_gpu = xp is not np
         rolling_mean = (lambda arr, win: _rolling_mean_xp(arr, win, xp)) if use_gpu else _rolling_mean_numpy
 
         # record execution
         self._called_methods.add('rsi')
-        if 'Symbol' in df.columns:
-            symbols = df['Symbol'].values
-            prices = df[col].values.astype(float)
-            rsi_out = np.empty(len(df), dtype=float)
-            for sym in np.unique(symbols):
-                mask = symbols == sym
-                indices = np.where(mask)[0]
-                sym_prices = prices[mask]
-                sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
-                rsi_vals = _rsi_xp(sym_prices_xp, window, xp, rolling_mean)
-                rsi_out[indices] = self._to_numpy(rsi_vals)
-            df['RSI'] = rsi_out
+
+        if self.arrays is not None:
+            arrays = self.arrays
+            symbols = arrays.get('Symbol', None)
+            prices = arrays[col].astype(float)
+            rsi_out = np.empty(len(prices), dtype=float)
+            if symbols is not None:
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.nonzero(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    rsi_vals = _rsi_xp(sym_prices_xp, window, xp, rolling_mean)
+                    rsi_out[indices] = self._to_numpy(rsi_vals)
+            else:
+                prices_xp = xp.asarray(prices, dtype=xp.float64) if use_gpu else prices
+                rsi_out = self._to_numpy(_rsi_xp(prices_xp, window, xp, rolling_mean))
+            arrays['RSI'] = rsi_out
         else:
-            prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
-            df['RSI'] = self._to_numpy(_rsi_xp(prices, window, xp, rolling_mean))
-        self.data = df
+            df = self.data
+            col = column if column else df.columns[-1]
+            if 'Symbol' in df.columns:
+                symbols = df['Symbol'].values
+                prices = df[col].values.astype(float)
+                rsi_out = np.empty(len(df), dtype=float)
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.where(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    rsi_vals = _rsi_xp(sym_prices_xp, window, xp, rolling_mean)
+                    rsi_out[indices] = self._to_numpy(rsi_vals)
+                df['RSI'] = rsi_out
+            else:
+                prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
+                df['RSI'] = self._to_numpy(_rsi_xp(prices, window, xp, rolling_mean))
+            self.data = df
 
     def bollinger_bands(self, window: int = 20, num_std: float = 2.0, column: str | None = "Close"):
         """
@@ -358,42 +405,74 @@ class TechnicalIndicators:
         - BB_upper
         - BB_lower
         """
-        df = self.data
-        col = column if column else df.columns[-1]
-        xp = self._xp(len(df))
+        col = column if column else (list(self.arrays.keys())[-1] if self.arrays is not None else self.data.columns[-1])
+        length = len(self.arrays[next(iter(self.arrays))]) if self.arrays is not None else len(self.data)
+        xp = self._xp(length)
         use_gpu = xp is not np
         rolling_mean = (lambda arr, win: _rolling_mean_xp(arr, win, xp)) if use_gpu else _rolling_mean_numpy
         rolling_std = (lambda arr, win: _rolling_std_xp(arr, win, xp)) if use_gpu else _rolling_std_numpy
 
         # record execution
         self._called_methods.add('bollinger_bands')
-        if 'Symbol' in df.columns:
-            symbols = df['Symbol'].values
-            prices = df[col].values.astype(float)
-            upper = np.empty(len(df), dtype=float)
-            lower = np.empty(len(df), dtype=float)
-            for sym in np.unique(symbols):
-                mask = symbols == sym
-                indices = np.where(mask)[0]
-                sym_prices = prices[mask]
-                sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
-                sma = rolling_mean(sym_prices_xp, window)
-                std = rolling_std(sym_prices_xp, window)
+
+        if self.arrays is not None:
+            arrays = self.arrays
+            symbols = arrays.get('Symbol', None)
+            prices = arrays[col].astype(float)
+            upper = np.empty(len(prices), dtype=float)
+            lower = np.empty(len(prices), dtype=float)
+            if symbols is not None:
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.nonzero(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    sma = rolling_mean(sym_prices_xp, window)
+                    std = rolling_std(sym_prices_xp, window)
+                    sma_np = self._to_numpy(sma)
+                    std_np = self._to_numpy(std)
+                    upper[indices] = sma_np + num_std * std_np
+                    lower[indices] = sma_np - num_std * std_np
+            else:
+                prices_xp = xp.asarray(prices, dtype=xp.float64) if use_gpu else prices
+                sma = rolling_mean(prices_xp, window)
+                std = rolling_std(prices_xp, window)
                 sma_np = self._to_numpy(sma)
                 std_np = self._to_numpy(std)
-                upper[indices] = sma_np + num_std * std_np
-                lower[indices] = sma_np - num_std * std_np
-            df['BB_upper'] = upper
-            df['BB_lower'] = lower
+                upper = sma_np + num_std * std_np
+                lower = sma_np - num_std * std_np
+            arrays['BB_upper'] = upper
+            arrays['BB_lower'] = lower
         else:
-            prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
-            sma = rolling_mean(prices, window)
-            std = rolling_std(prices, window)
-            sma_np = self._to_numpy(sma)
-            std_np = self._to_numpy(std)
-            df['BB_upper'] = sma_np + num_std * std_np
-            df['BB_lower'] = sma_np - num_std * std_np
-        self.data = df
+            df = self.data
+            col = column if column else df.columns[-1]
+            if 'Symbol' in df.columns:
+                symbols = df['Symbol'].values
+                prices = df[col].values.astype(float)
+                upper = np.empty(len(df), dtype=float)
+                lower = np.empty(len(df), dtype=float)
+                for sym in np.unique(symbols):
+                    mask = symbols == sym
+                    indices = np.where(mask)[0]
+                    sym_prices = prices[mask]
+                    sym_prices_xp = xp.asarray(sym_prices, dtype=xp.float64) if use_gpu else sym_prices
+                    sma = rolling_mean(sym_prices_xp, window)
+                    std = rolling_std(sym_prices_xp, window)
+                    sma_np = self._to_numpy(sma)
+                    std_np = self._to_numpy(std)
+                    upper[indices] = sma_np + num_std * std_np
+                    lower[indices] = sma_np - num_std * std_np
+                df['BB_upper'] = upper
+                df['BB_lower'] = lower
+            else:
+                prices = xp.asarray(df[col].values, dtype=xp.float64) if use_gpu else df[col].values
+                sma = rolling_mean(prices, window)
+                std = rolling_std(prices, window)
+                sma_np = self._to_numpy(sma)
+                std_np = self._to_numpy(std)
+                df['BB_upper'] = sma_np + num_std * std_np
+                df['BB_lower'] = sma_np - num_std * std_np
+            self.data = df
 
     def final_df(self):
         """Return the current DataFrame with all computed indicators.
