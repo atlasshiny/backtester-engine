@@ -220,13 +220,16 @@ class PerformanceAnalytics:
         print(f"Annualized Sharpe Ratio: {sharpe:.2f}")
 
         # sortino ratio (robust to division by zero or nan)
+        # Uses proper downside deviation: sqrt(mean(min(r - rf, 0)^2)) over ALL returns
         if len(returns_np):
             if hasattr(returns, 'get'):
-                downside = returns[returns < 0]
-                downside_dev = float(xp.std(downside)) if downside.size else float('nan')
+                excess = returns - risk_free_rate
+                downside_diff = xp.minimum(excess, 0.0)
+                downside_dev = float(xp.sqrt(xp.mean(downside_diff ** 2)))
             else:
-                downside = returns_np[returns_np < 0]
-                downside_dev = float(np.std(downside)) if len(downside) else float('nan')
+                excess = returns_np - risk_free_rate
+                downside_diff = np.minimum(excess, 0.0)
+                downside_dev = float(np.sqrt(np.mean(downside_diff ** 2)))
             if downside_dev > 0 and np.isfinite(downside_dev):
                 sortino = (mean_ret - risk_free_rate) / downside_dev * np.sqrt(annualization)
             else:
@@ -262,8 +265,11 @@ class PerformanceAnalytics:
                 if sym is None or qty_to_match <= 0 or trade_dict.get('price') is None:
                     continue
                 if side == 'BUY':
-                    # Add to the queue for this symbol
-                    open_trades_by_symbol.setdefault(sym, []).append(trade_dict.copy())
+                    # Add to the queue for this symbol; store original qty for
+                    # proportional commission allocation across partial fills.
+                    entry_copy = trade_dict.copy()
+                    entry_copy['_original_qty'] = entry_copy['qty']
+                    open_trades_by_symbol.setdefault(sym, []).append(entry_copy)
                 elif side == 'SELL':
                     opens = open_trades_by_symbol.get(sym, [])
                     # Loop until the SELL quantity is fully matched or we run out of BUYs
@@ -272,8 +278,10 @@ class PerformanceAnalytics:
                         available_qty = entry['qty']
                         # Determine how much we can match in this iteration
                         matched_qty = min(qty_to_match, available_qty)
-                        # Calculate proportional PnL and commissions
-                        share_of_entry = matched_qty / entry['qty']
+                        # Calculate proportional PnL and commissions using
+                        # ORIGINAL quantities so partial fills don't double-count.
+                        original_entry_qty = entry.get('_original_qty', entry['qty'])
+                        share_of_entry = matched_qty / original_entry_qty
                         share_of_exit = matched_qty / trade_dict['qty']
                         gross_pnl = (trade_dict['price'] - entry['price']) * matched_qty
                         entry_comm = float(entry.get('commission', 0.0) or 0.0) * share_of_entry
