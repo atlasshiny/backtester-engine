@@ -237,10 +237,10 @@ class TechnicalIndicators:
                 df['SMA_fast'] = self._to_numpy(rolling_mean(prices, fast_window))
                 df['SMA_slow'] = self._to_numpy(rolling_mean(prices, slow_window))
             self.data = df
-    
-        def get_called_methods(self) -> set:
-            """Return the set of indicator method names that have been executed on this instance."""
-            return set(self._called_methods)
+
+    def get_called_methods(self) -> set:
+        """Return the set of indicator method names that have been executed on this instance."""
+        return set(self._called_methods)
 
     def exponential_moving_average(self, window: int = 14, column: str | None = "Close"):
         """
