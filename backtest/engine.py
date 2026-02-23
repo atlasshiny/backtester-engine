@@ -545,6 +545,17 @@ class BacktestEngine:
                     sma_slow=sma_slow_arr[idx] if sma_slow_arr is not None else None,
                 )
 
+                # Per-symbol warmup for long-format data (check BEFORE calling strategy)
+                if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
+                    warmup_count_by_symbol[symbol] += 1
+                    bar_index_by_symbol[symbol] += 1
+                    pending_order_by_symbol[symbol] = None
+                    continue
+
+                # execute the previous bar's decision for THIS symbol using the CURRENT bar's prices
+                if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
+                    self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
+
                 if window_size and window_size > 0:
                     # Mode B: Only slice if strategy.history_window is set
                     if arrays_by_symbol is not None and symbol in arrays_by_symbol:
