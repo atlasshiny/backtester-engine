@@ -575,17 +575,6 @@ class BacktestEngine:
                     # Mode A: Fast path - skip slicing entirely
                     signal = self.strategy.check_condition(bar)
 
-                # Per-symbol warmup for long-format data
-                if self.warm_up and warmup_count_by_symbol[symbol] < self.warm_up:
-                    warmup_count_by_symbol[symbol] += 1
-                    bar_index_by_symbol[symbol] += 1
-                    pending_order_by_symbol[symbol] = None
-                    continue
-
-                # execute the previous bar's decision for THIS symbol using the CURRENT bar's prices
-                if symbol in pending_order_by_symbol and pending_order_by_symbol[symbol] is not None:
-                    self.broker.execute(event=bar, order=pending_order_by_symbol[symbol])
-
                 pending_order_by_symbol[symbol] = signal
                 bar_index_by_symbol[symbol] += 1
 
