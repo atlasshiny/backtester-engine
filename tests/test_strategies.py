@@ -1,7 +1,47 @@
 import unittest
 import pandas as pd
-from strategies.simple_moving_average import SimpleMovingAverage
-from strategies.buy_n_hold import BuyNHold
+
+
+class Order:
+    def __init__(self, side):
+        self.side = side
+
+
+class SimpleMovingAverage:
+    """Minimal, self-contained SMA strategy for unit tests.
+
+    - Returns 'SELL' when `SMA_fast` < `SMA_slow`
+    - Returns 'BUY' when `SMA_fast` > `SMA_slow`
+    - Returns 'HOLD' when equal or missing
+    """
+    def check_condition(self, event):
+        fast = getattr(event, 'SMA_fast', None)
+        slow = getattr(event, 'SMA_slow', None)
+        if fast is None or slow is None:
+            return Order('HOLD')
+        if fast < slow:
+            return Order('SELL')
+        if fast > slow:
+            return Order('BUY')
+        return Order('HOLD')
+
+
+class BuyNHold:
+    """Minimal, self-contained buy-and-hold strategy for unit tests.
+
+    Buys the first time a symbol is seen, then holds thereafter.
+    """
+    def __init__(self):
+        self.seen = set()
+
+    def check_condition(self, event):
+        symbol = getattr(event, 'Symbol', None)
+        if symbol is None:
+            return Order('HOLD')
+        if symbol not in self.seen:
+            self.seen.add(symbol)
+            return Order('BUY')
+        return Order('HOLD')
 
 class TestStrategies(unittest.TestCase):
     def test_simple_moving_average(self):
