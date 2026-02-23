@@ -14,16 +14,35 @@ class SimpleMovingAverage:
     - Returns 'BUY' when `SMA_fast` > `SMA_slow`
     - Returns 'HOLD' when equal or missing
     """
+    def __init__(self):
+        self.last_fast = None
+        self.last_slow = None
+
     def check_condition(self, event):
         fast = getattr(event, 'SMA_fast', None)
         slow = getattr(event, 'SMA_slow', None)
         if fast is None or slow is None:
             return Order('HOLD')
-        if fast < slow:
-            return Order('SELL')
-        if fast > slow:
-            return Order('BUY')
-        return Order('HOLD')
+
+        # Initial row: emit signal based on current relation
+        if self.last_fast is None or self.last_slow is None:
+            sig = 'HOLD'
+            if fast < slow:
+                sig = 'SELL'
+            elif fast > slow:
+                sig = 'BUY'
+            self.last_fast, self.last_slow = fast, slow
+            return Order(sig)
+
+        # Crossover detection: BUY when fast crosses above slow, SELL when fast crosses below
+        sig = 'HOLD'
+        if self.last_fast <= self.last_slow and fast > slow:
+            sig = 'BUY'
+        elif self.last_fast >= self.last_slow and fast < slow:
+            sig = 'SELL'
+
+        self.last_fast, self.last_slow = fast, slow
+        return Order(sig)
 
 
 class BuyNHold:
