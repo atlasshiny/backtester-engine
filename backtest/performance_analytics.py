@@ -7,6 +7,8 @@ import seaborn as sns
 from typing import Literal
 from numba import njit
 
+from .array_utils import ensure_array
+
 try:  # Optional GPU acceleration
     import cupy as cp  # type: ignore
     _CUPY_AVAILABLE = True
@@ -142,7 +144,9 @@ class PerformanceAnalytics:
         xp = _select_array_module(prefer_gpu, len(portfolio.value_history), gpu_min_size)
 
         # convert value history to chosen array module for calculations
-        equity = xp.asarray(portfolio.value_history, dtype=xp.float64)
+        # Use ensure_array to avoid attempting to move object/string arrays to CuPy
+        vh = ensure_array(portfolio.value_history, xp)
+        equity = xp.asarray(vh, dtype=xp.float64)
         equity_np = _to_numpy(equity)
         if equity.size >= 2:
             returns = xp.diff(equity) / equity[:-1]
