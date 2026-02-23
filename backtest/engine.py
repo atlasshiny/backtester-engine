@@ -156,17 +156,16 @@ class BacktestEngine:
         # This avoids treating each row index as a separate "symbol". Accept either a pandas DataFrame or a dict of arrays (from df_to_arrays).
         self.arrays = None
         if isinstance(data_set, dict):
-            # Choose array module based on explicit preference and dataset length
-            from .array_utils import select_array_module, ensure_array
-            xp = select_array_module(prefer_gpu, len(next(iter(data_set.values()))), self.gpu_min_size)
-            self.arrays = {k: ensure_array(v, xp) for k, v in data_set.items()}
-            # inject Symbol if missing (preserve xp array type)
+            # Always store data as NumPy arrays for fast scalar access in the
+            # run loop.  GPU acceleration is applied in indicator computation
+            # (TechnicalIndicators) and analytics (PerformanceAnalytics), not
+            # in the per-bar event loop.
+            from .array_utils import ensure_array
+            self.arrays = {k: ensure_array(v, np) for k, v in data_set.items()}
+            # inject Symbol if missing
             if 'Symbol' not in self.arrays:
                 n = len(next(iter(self.arrays.values())))
-                if xp is not np:
-                    self.arrays['Symbol'] = xp.asarray(['SINGLE'] * n)
-                else:
-                    self.arrays['Symbol'] = np.array(['SINGLE'] * n)
+                self.arrays['Symbol'] = np.array(['SINGLE'] * n)
             self.data_set = None
         else:
             if 'Symbol' not in data_set.columns:
