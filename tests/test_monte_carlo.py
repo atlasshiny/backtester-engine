@@ -1,7 +1,6 @@
 import matplotlib
 matplotlib.use('Agg')
 
-from pathlib import Path
 import pandas as pd
 
 from backtest.monte_carlo import MonteCarloSim
@@ -26,8 +25,15 @@ class MinimalEngine:
 
 
 def load_synthetic():
-    p = Path(__file__).resolve().parents[1] / 'data' / 'synthetic.csv'
-    return pd.read_csv(p)
+    # Small synthetic DataFrame so tests are self-contained
+    return pd.DataFrame({
+        'Date': pd.date_range('2020-01-01', periods=4),
+        'Open': [10, 11, 12, 13],
+        'High': [11, 12, 13, 14],
+        'Low': [9, 10, 11, 12],
+        'Close': [10.5, 11.5, 12.5, 13.5],
+        'Volume': [100, 110, 120, 130],
+    })
 
 
 def test_monte_carlo_smoke():
