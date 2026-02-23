@@ -24,12 +24,17 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install core requirements
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # Install testing and dev tools
+        
+        # This creates a temporary CI requirements file.
+        if [ -f requirements.txt ]; then 
+          grep -v "cupy" requirements.txt > requirements_ci.txt
+          pip install -r requirements_ci.txt
+        fi
+        
+        # Ensure testing and visualization tools are installed
         pip install pytest seaborn numba
 
-    - name: Run Tests with pytest
+    - name: Run tests with pytest
       run: |
-        # This will discover and run all test_*.py files
-        python -m pytest
+        # Run all files starting with test_*.py
+        python -m pytest -v
