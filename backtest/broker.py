@@ -106,9 +106,46 @@ class Broker:
         The broker attaches a timestamp to each log entry. Resolution order:
         order.timestamp -> event.Date -> event.Index.
         """
-        price = event.Open
-        price_low = event.Low
-        price_high = event.High
+        # Robustly obtain prices from the event (handle different attribute names),
+        # falling back to order attributes or last-known prices when necessary.
+        def _first_defined(obj, *names, default=None):
+            for n in names:
+                v = getattr(obj, n, None)
+                if v is not None:
+                    return v
+            return default
+
+        price = _first_defined(event, 'Open', 'open', 'Close', 'close')
+        price_low = _first_defined(event, 'Low', 'low', 'Open', 'open', default=price)
+        price_high = _first_defined(event, 'High', 'high', 'Open', 'open', default=price)
+
+        # If still missing, prefer order-level price hints
+        if price is None:
+            price = _first_defined(order, 'price', 'exec_price', 'limit_price', default=None)
+        if price_low is None:
+            price_low = price
+        if price_high is None:
+            price_high = price
+
+        # Final fallback to last-known price for the symbol or 0.0
+        if price is None:
+            price = self.last_prices.get(symbol, 0.0)
+            price_low = price_low or price
+            price_high = price_high or price
+
+        # Coerce to floats to avoid NoneType arithmetic
+        try:
+            price = float(price)
+        except Exception:
+            price = 0.0
+        try:
+            price_low = float(price_low)
+        except Exception:
+            price_low = price
+        try:
+            price_high = float(price_high)
+        except Exception:
+            price_high = price
         side = order.side
         symbol = order.symbol
         qty = order.qty
