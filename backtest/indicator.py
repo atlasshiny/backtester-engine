@@ -50,20 +50,26 @@ def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
 
 @njit
 def _rolling_std_numpy(arr: np.ndarray, window: int) -> np.ndarray:
-    """Fast rolling standard deviation using NumPy."""
-    # Ensure we always return a float array to keep numba return types consistent
-    result = np.empty(len(arr), dtype=np.float64)
-    if window <= 0:
-        for i in range(len(arr)):
-            result[i] = arr[i]
+    n = len(arr)
+    result = np.full(n, np.nan, dtype=np.float64)
+    if window <= 0 or n < window:
         return result
 
-    result[:] = np.nan
-    result[:window-1] = np.nan
-    for i in range(window-1, len(arr)):
-        result[i] = np.std(arr[i-window+1:i+1])
-    return result
+    cumsum = np.cumsum(arr)
+    cumsum_sq = np.cumsum(arr**2)
 
+    for i in range(window - 1, n):
+        if i == window - 1:
+            sum_val = cumsum[i]
+            sum_sq_val = cumsum_sq[i]
+        else:
+            sum_val = cumsum[i] - cumsum[i - window]
+            sum_sq_val = cumsum_sq[i] - cumsum_sq[i - window]
+
+        mean = sum_val / window
+        variance = (sum_sq_val / window) - (mean**2)
+        result[i] = np.sqrt(max(0.0, variance))
+    return result
 
 def _select_array_module(prefer_gpu: Literal["auto", True, False], length: int, gpu_min_size: int) -> object:
     """Return cupy or numpy array module based on preference/availability/size."""
