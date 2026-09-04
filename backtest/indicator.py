@@ -37,16 +37,15 @@ def _rolling_mean_numpy(arr: np.ndarray, window: int) -> np.ndarray:
     """Fast rolling mean using NumPy."""
     # Ensure we always return a float array to keep numba return types consistent
     result = np.empty(len(arr), dtype=np.float64)
-    if window <= 0:
-        for i in range(len(arr)):
-            result[i] = arr[i]
-        return result
-
     result[:] = np.nan
-    # preserve same warmup behavior: first window-1 values are NaN
-    result[:window-1] = np.nan
-    for i in range(window-1, len(arr)):
-        result[i] = np.mean(arr[i-window+1:i+1])
+    if window <= 0 or len(arr) < window:
+        return result
+    
+    # O(N) calculation using cumulative sum
+    cumsum = np.cumsum(arr)
+    result[window-1] = cumsum[window-1] / window
+    for i in range(window, len(arr)):
+        result[i] = (cumsum[i] - cumsum[i-window]) / window
     return result
 
 @njit
@@ -271,15 +270,6 @@ class TechnicalIndicators:
                 result[i] = alpha_local * arr[i] + (1 - alpha_local) * result[i-1]
             return result
 
-        def _ema_xp(arr_xp):
-            if len(arr_xp) == 0:
-                return xp.asarray(arr_xp, dtype=xp.float64)
-            result = xp.empty(len(arr_xp), dtype=xp.float64)
-            result[0] = arr_xp[0]
-            for i in range(1, len(arr_xp)):
-                result[i] = alpha * arr_xp[i] + (1 - alpha) * result[i-1]
-            return result
-
         # record execution
         self._called_methods.add('exponential_moving_average')
 
@@ -293,16 +283,10 @@ class TechnicalIndicators:
                     mask = symbols == sym
                     indices = np.nonzero(mask)[0]
                     sym_prices = prices[mask]
-                    if use_gpu:
-                        ema_vals = _ema_xp(xp.asarray(sym_prices, dtype=xp.float64))
-                    else:
-                        ema_vals = _ema_numpy(sym_prices, alpha)
+                    ema_vals = _ema_numpy(sym_prices, alpha)
                     ema_out[indices] = self._to_numpy(ema_vals)
             else:
-                if use_gpu:
-                    ema_vals = _ema_xp(xp.asarray(prices, dtype=xp.float64))
-                else:
-                    ema_vals = _ema_numpy(prices, alpha)
+                ema_vals = _ema_numpy(prices, alpha)
                 ema_out = self._to_numpy(ema_vals)
             arrays['EMA'] = ema_out
         else:
@@ -316,17 +300,11 @@ class TechnicalIndicators:
                     mask = symbols == sym
                     indices = np.where(mask)[0]
                     sym_prices = prices[mask]
-                    if use_gpu:
-                        ema_vals = _ema_xp(xp.asarray(sym_prices, dtype=xp.float64))
-                    else:
-                        ema_vals = _ema_numpy(sym_prices, alpha)
+                    ema_vals = _ema_numpy(sym_prices, alpha)
                     ema_out[indices] = self._to_numpy(ema_vals)
             else:
                 prices = df[col].values.astype(float)
-                if use_gpu:
-                    ema_vals = _ema_xp(xp.asarray(prices, dtype=xp.float64))
-                else:
-                    ema_vals = _ema_numpy(prices, alpha)
+                ema_vals = _ema_numpy(prices, alpha)
                 ema_out = self._to_numpy(ema_vals)
             df['EMA'] = ema_out
             self.data = df
